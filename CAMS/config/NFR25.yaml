@@ -1,0 +1,137 @@
+# Configuration for the CAMS -> LBC creation pipeline (create_LBC.py) on the
+# ALPX3 Arome domain, Belenos HPC.
+#
+# To run the pipeline on a different domain, copy this file (e.g. to
+# config/MYDOMAIN.yaml), update the values below, and pass it via:
+#   create_LBC.py --config config/MYDOMAIN.yaml --ERA5 ... --CAMS ... --mode ... --output ...
+#
+# See lbc_config.py for the full list of keys, their defaults, and validation
+# rules.
+
+# ---------------------------------------------------------------------------
+# Filesystem paths
+# ---------------------------------------------------------------------------
+paths:
+  # Path to the "gl" Fortran interpolation binary (Meteo-France GL tool).
+  gl_bin: /home/gmgec/mrgo/lenobler/SAVE/code/GL/belenos/bin/gl
+
+  # Climatology/orography file for the target domain. "{geom}" is replaced
+  # with domain.name below.
+  climate_file: /home/gmgec/mrgo/haradercoustaue/AROME49/NFR2.5/clim/clim_arpege.NFR2.5r.m01
+
+  # Shell command sourced before every pipeline step (sets up the HPC module
+  # environment and epygram). Leave empty ("") to skip.
+  env_setup: "source /home/gmgec/mrgo/lenobler/SAVE/code/GL/config/setenv.belenos && . with_epygram_old"
+
+  # Directory containing the pipeline scripts (interpole_current_folder.py,
+  # Interpol_CAMS_to_ALPX3.py, interpolate_grib_hourly_epygram.py,
+  # merge_LBC.py, merge_files.py). Leave unset (null) to use the directory
+  # this config-loading module lives in (i.e. this repo's CAMS/ folder).
+  scripts_dir: null
+
+# ---------------------------------------------------------------------------
+# Target domain / vertical grid definition
+# ---------------------------------------------------------------------------
+domain:
+  name: NFR25
+
+  # Number of vertical levels.
+  nlev: 60
+
+  # Half-level A/B hybrid vertical coordinate coefficients (nlev + 1 values each).
+  ahalf: [0.0, 271.828183, 973.18828, 2030.384267, 3319.22603, 4795.396231,
+          6433.281895, 8215.601394, 10096.132563, 11988.307779, 13834.682123,
+          15583.858088, 17187.794886, 18602.008555, 19786.497669, 20706.971826,
+          21336.176625, 21655.154375, 21654.293789, 21349.398517, 20799.963249,
+          20063.04381, 19186.977397, 18211.807506, 17170.190348, 16088.493072,
+          14987.896852, 13885.397395, 12794.651871, 11726.658425, 10690.276989,
+          9692.612455, 8739.286691, 7834.626887, 6981.796027, 6182.888017,
+          5439.005999, 4750.338217, 4116.241919, 3535.342466, 3005.652443,
+          2524.714255, 2089.769666, 1705.297418, 1374.651994, 1093.095953,
+          855.930809, 658.559613, 496.535186, 365.596754, 261.697342,
+          181.023925, 120.01201, 75.356071, 44.017046, 23.227928,
+          10.498339, 3.618836, 0.665238, 0.0, 0.0]
+
+  bhalf: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0003309675,
+          0.0017502454, 0.00474672, 0.0097630763, 0.0172188647, 0.0275061852,
+          0.0409789128, 0.0579393888, 0.0786244617, 0.1031923737, 0.1317118797,
+          0.1630387143, 0.1956652968, 0.2291058092, 0.2629653973, 0.2969317553,
+          0.3307628186, 0.3642733463, 0.3973221613, 0.4298010406, 0.461625693,
+          0.4927289008, 0.523055687, 0.5525602477, 0.5812043462, 0.6089568564,
+          0.6357941683, 0.6617012022, 0.6866728253, 0.7107155105, 0.7338491181,
+          0.7561087224, 0.7775464304, 0.7982331608, 0.8182603537, 0.8373613875,
+          0.8552205742, 0.8718800642, 0.8873812719, 0.9017642034, 0.9150669112,
+          0.9273250455, 0.9385714693, 0.9488359088, 0.9581446011, 0.9665198957,
+          0.9739797401, 0.9805369262, 0.9861978406, 0.9909600628, 0.9948065724,
+          0.9976807303, 1.0]
+
+# ---------------------------------------------------------------------------
+# Aerosol species
+# ---------------------------------------------------------------------------
+aerosols:
+  # CAMS shortnames read/interpolated by the "gl" tool.
+  cams_shortnames:
+    - aermr01  # Sea Salt Aerosol (0.03 - 0.5 um) Mixing Ratio
+    - aermr02  # Sea Salt Aerosol (0.5 - 5 um) Mixing Ratio
+    - aermr03  # Sea Salt Aerosol (5 - 20 um) Mixing Ratio
+    - aermr04  # Dust Aerosol (0.03 - 0.55 um) Mixing Ratio
+    - aermr05  # Dust Aerosol (0.55 - 0.9 um) Mixing Ratio
+    - aermr06  # Dust Aerosol (0.9 - 20 um) Mixing Ratio
+    - aermr07  # Hydrophilic Organic Matter Aerosol Mixing Ratio
+    - aermr08  # Hydrophobic Organic Matter Aerosol Mixing Ratio
+    - aermr09  # Hydrophilic Black Carbon Aerosol Mixing Ratio
+    - aermr10  # Hydrophobic Black Carbon Aerosol Mixing Ratio
+    - aermr11  # Sulphate Aerosol Mixing Ratio
+
+  # FA field names used when --mode MMR is selected (direct name mapping,
+  # no LIMA particle scaling).
+  mmr_faname:
+    - SEASALT1_MMR
+    - SEASALT2_MMR
+    - SEASALT3_MMR
+    - DUST1_MMR
+    - DUST2_MMR
+    - DUST3_MMR
+    - OM1_MMR
+    - OM2_MMR
+    - BC1_MMR
+    - BC2_MMR
+    - SULF_MMR
+
+# ---------------------------------------------------------------------------
+# File naming conventions
+# ---------------------------------------------------------------------------
+naming:
+  # Raw CAMS input filenames must start with this prefix ("{geom}" ->
+  # domain.name). Adjust the trailing literal (here "2012") to match your
+  # data, or remove it to match any year.
+  cams_input_prefix: "CAMS_model"
+
+  # Regex used to extract the datetime string from raw CAMS filenames, and
+  # the corresponding strptime format.
+  cams_input_datetime_regex: '(\d{4}-\d{2}-\d{2}_\d{2})'
+  cams_input_datetime_format: "%Y-%m-%d_%H"
+
+  # Prefix for CAMS files once interpolated onto the target grid.
+  cams_interp_prefix: "CAMS_model_level_"
+
+  # Prefix of the ERA5 LBC files to merge with the interpolated CAMS files
+  # ("{geom}" -> domain.name).
+  era5_prefix: "NFR3ERA5LBC"
+
+  # Prefix for the final merged output files ("{geom}" -> domain.name).
+  merge_output_prefix: "{geom}_ERA5_CAMS_"
+
+# ---------------------------------------------------------------------------
+# Runtime / parallelism
+# ---------------------------------------------------------------------------
+runtime:
+  # Number of worker processes for the hourly time-interpolation step.
+  nproc_time_interp: 10
+
+  # Number of worker processes for the ERA5/CAMS merge step.
+  max_workers_merge: 16
+
+  # Maximum time difference (hours) allowed when matching a CAMS file to an
+  # ERA5 LBC file.
+  match_tolerance_hours: 1

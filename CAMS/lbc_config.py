@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/gmgec/mrgo/lenobler/miniforge3/bin/python3
 """
 Configuration loader for the CAMS -> LBC creation pipeline (create_LBC.py and
 the scripts it drives).

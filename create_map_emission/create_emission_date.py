@@ -21,7 +21,7 @@ Workflow:
 
 Configuration (edit as needed before running):
     - `date`: the target date to extract from each emission dataset.
-    - `prep_file_path` / `prep_file_out`: input reference file and output
+    - `PGD_file_path` / `PGD_file_out`: input reference file and output
       file to create.
     - `dict_var_to_treat.variable_to_treat`: list of variables to process.
 
@@ -43,17 +43,17 @@ date = pd.to_datetime('2012/10/17', format='%Y/%m/%d')
 
 # --- Reference file (defines the output geometry) and output file ---
 # Alternative reference: a PREP restart file instead of the PGD file.
-# prep_file_path = '/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.ALPX3.cy49_201210170000.fa'
-# prep_file_out  = '/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.ALPX3.cy49_201210170000_aerosol.fa'
+# PGD_file_path = '/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.ALPX3.cy49_201210170000.fa'
+# PGD_file_out  = '/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.ALPX3.cy49_201210170000_aerosol.fa'
 
-prep_file_path = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD.fa'
-prep_file_out = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD_aerosol.fa'
+PGD_file_path = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD_aerosol.fa'
+PGD_file_out = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD_aerosol_1.fa'
 
 # Prefix prepended to every field name written to the output FA file
 # (arbitrary FA "experiment" tag used to namespace these fields).
 FA_FIELD_PREFIX = 'X001E_'
 
-prep_file = epygram.open(prep_file_path, 'r')
+prep_file = epygram.open(PGD_file_path, 'r')
 try:
     # Read any 2D field just to get hold of the ALPX3 geometry.
     f_arome = prep_file.readfield('SFX.COVER001')
@@ -65,9 +65,9 @@ except Exception:
     f_arome = prep_file.readfield('SFX.Z0WATER')
 prep_file.close()
 
-# shutil.copy overwrites prep_file_out if it already exists.
-shutil.copy(prep_file_path, prep_file_out)
-prep_out = epygram.open(prep_file_out, 'a')
+# shutil.copy overwrites PGD_file_out if it already exists.
+shutil.copy(PGD_file_path, PGD_file_out)
+prep_out = epygram.open(PGD_file_out, 'a')
 
 for variable in dict_var_to_treat.variable_to_treat:
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/gmgec/mrgo/lenobler/miniforge3/bin/python3
 import os
 import re
 import subprocess
@@ -28,7 +28,7 @@ def interpole_folder(input_folder, output_folder, config, all_particles, list_FA
                 print(f"Processing {input_file} -> {output_file}")
                 interpole_file(
                     input_file, output_file, all_particles,
-                    list_FA_name=list_FA_name, config=config, work_dir=output_folder,
+                    list_FA_name=list_FA_name, config=config, work_dir='./',
                 )
 
 if __name__ == "__main__":
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     #####################
     # Select aerosol mode
     #####################
-    if args.mode == 'MMR':
+    if args.mode.lower() == 'mmr':
         all_particles = []
         list_FA_name = config["aerosols"]["mmr_faname"]
     else:

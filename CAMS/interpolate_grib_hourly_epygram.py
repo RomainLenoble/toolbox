@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/gmgec/mrgo/lenobler/miniforge3/bin/python3
 import os
 import re
 from datetime import datetime, timedelta

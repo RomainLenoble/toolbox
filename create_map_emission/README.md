@@ -86,3 +86,49 @@ the script and `dict_var_to_treat.py` directly.
 - **Single date per run**: to process a date range, wrap the script in a
   loop over `date` values (not currently provided).
 - **Environment-specific shebang**: see [Requirements](#requirements).
+
+
+# Add emission to Arome/Accalmie simulation
+
+- create new PGD with aerosols emisions following the above script
+- update the sfx nml: 
+  ```
+   &NAM_CH_EMIS_PGD NEMIS_PGD_NBR = 6,
+      CEMIS_PGD_NAME(1)='BC_em',
+      NEMIS_PGD_TIME(1)=1,
+      CEMIS_PGD_AREA(1)='ALL',
+      CEMIS_PGD_ATYPE(1)='ARI',
+      CEMIS_PGD_NAME(2)='BC_bb',
+      NEMIS_PGD_TIME(2)=1,
+      CEMIS_PGD_AREA(2)='ALL',
+      CEMIS_PGD_ATYPE(2)='ARI',
+      CEMIS_PGD_NAME(3)='OC_em',
+      NEMIS_PGD_TIME(3)=1,
+      CEMIS_PGD_AREA(3)='ALL',
+      CEMIS_PGD_ATYPE(3)='ARI',
+      CEMIS_PGD_NAME(4)='OC_bb',
+      NEMIS_PGD_TIME(4)=1,
+      CEMIS_PGD_AREA(4)='ALL',
+      CEMIS_PGD_ATYPE(4)='ARI',
+      CEMIS_PGD_NAME(5)='SO2_bb',
+      NEMIS_PGD_TIME(5)=1,
+      CEMIS_PGD_AREA(5)='ALL',
+      CEMIS_PGD_ATYPE(5)='ARI',
+      CEMIS_PGD_NAME(6)='SO2_em',
+      NEMIS_PGD_TIME(6)=1,
+      CEMIS_PGD_AREA(6)='ALL',
+      CEMIS_PGD_ATYPE(6)='ARI',
+      /
+  ```
+  - update the files read by surfex to manage the emission, for tactic: `ChemAeroSURFEX.nam`:
+  ```
+    AGREGATION
+      Schema reactionnel TACTIC
+      BCHPHIL 0.2 BC_em 0.2 BC_bb
+      BCHPHOB 0.8 BC_em 0.8 BC_bb
+      OMHPHIL 0.5 OC_em 0.5 OC_bb
+      OMHPHOB 0.5 OC_em 0.5 OC_bb
+      SUL_SO4 0.05 SO2_bb
+      SUL_SO2 1. SO2_bb 1. SO2_em
+    END_AGREGATION
+  ```
