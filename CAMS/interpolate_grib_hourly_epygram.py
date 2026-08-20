@@ -8,6 +8,8 @@ from multiprocessing import Pool, cpu_count
 import argparse
 from functools import partial
 
+from lbc_config import load_config
+
 epygram.init_env()  # required
 
 # -------------------------------------------------------
@@ -71,7 +73,7 @@ def write_grib_from_fields(template_path, fields_dict, new_time, outpath):
 # ---------------------------------------------------
 # Function to process a single file pair
 # ---------------------------------------------------
-def process_file_pair(i, input_folder, files, output_folder):
+def process_file_pair(i, input_folder, files, output_folder, outname_prefix):
     f1 = files[i]
     f2 = files[i + 1]
 
@@ -98,7 +100,7 @@ def process_file_pair(i, input_folder, files, output_folder):
 
             fields_interp = interpolate_resources(r1, r2, alpha)
 
-            outname = f"CAMS_AROME_{t_new:%Y%m%d.%H%M}"
+            outname = f"{outname_prefix}{t_new:%Y%m%d.%H%M}"
             write_grib_from_fields(
                 path1, fields_interp, t_new,
                 os.path.join(output_folder, outname)
@@ -109,14 +111,16 @@ def process_file_pair(i, input_folder, files, output_folder):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Interpolate CAMS files to ALPX3 Arome format")
+    parser = argparse.ArgumentParser(description="Interpolate CAMS files to the target Arome domain")
     parser.add_argument("--input_folder", type=str, required=True, help="Path to the input folder containing CAMS files")
     parser.add_argument("--output_folder", type=str, help="Path to the output folder where results will be saved")
+    parser.add_argument("--config", type=str, required=True, help="Path to the YAML config file (see config/ALPX3.yaml)")
     args = parser.parse_args()
 
+    config = load_config(args.config)
+
     input_folder = args.input_folder
-    if args.output_folder == None:
-        output_folder = args.input_folder
+    output_folder = args.output_folder if args.output_folder is not None else args.input_folder
     os.makedirs(output_folder, exist_ok=True)
 
 
@@ -129,8 +133,12 @@ def main():
     # ---------------------------------------------------
     # Parallel execution
     # ---------------------------------------------------
-    NPROC = 10  # or set manually
-    partial_func = partial(process_file_pair, input_folder=input_folder, output_folder=output_folder, files=files)
+    NPROC = config["runtime"]["nproc_time_interp"]
+    outname_prefix = config["naming"]["cams_interp_prefix"]
+    partial_func = partial(
+        process_file_pair, input_folder=input_folder, output_folder=output_folder,
+        files=files, outname_prefix=outname_prefix,
+    )
 
     with Pool(NPROC) as pool:
         pool.map(partial_func, range(len(files)-1))

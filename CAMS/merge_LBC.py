@@ -1,4 +1,4 @@
-#!/home/gmgec/mrgo/lenobler/miniforge3/bin/python3
+#!/usr/bin/env python3
 import argparse
 import os
 import re
@@ -7,10 +7,12 @@ from datetime import datetime, timedelta
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+from lbc_config import load_config
+
                 
 def process_file(filename_LBC, pattern_CAMS, AROME_prefix, list_date_CAMS, 
                  folder_LBC_ERA5, folder_CAMS, folder_output, 
-                 CAMS_prefix, merge_exe):
+                 CAMS_prefix, merge_output_prefix, tolerance, merge_exe):
     match = pattern_CAMS.search(filename_LBC)
     if not match:
         return None
@@ -25,10 +27,10 @@ def process_file(filename_LBC, pattern_CAMS, AROME_prefix, list_date_CAMS,
     ind_closest_date = np.argmin(time_diffs)
     time_diff = time_diffs[ind_closest_date]
 
-    # Check if the difference is less than 3 hours
-    if time_diff < timedelta(hours=1):
+    # Check if the difference is within the configured tolerance
+    if time_diff < tolerance:
         filename_CAMS = f"{CAMS_prefix}{list_date_CAMS[ind_closest_date].strftime('%Y%m%d.%H00')}"
-        merge_filename = f"ALPX3_ERA5_CAMS_{date_str}"
+        merge_filename = f"{merge_output_prefix}{date_str}"
 
         cmd = [
             merge_exe,
@@ -49,11 +51,15 @@ def main():
     parser.add_argument('--ERA5', type=str, required=True,
                         help='Path to the ERA5 LBC directory.')
     parser.add_argument('--CAMS', type=str, required=True,
-                        help='Path to the CAMS interpolated over the ALPX3 geometry arome.')
+                        help='Path to the CAMS interpolated over the target Arome geometry.')
     parser.add_argument('--output', type=str, required=True,
                         help='Path to the folder.')
+    parser.add_argument('--config', type=str, required=True,
+                        help='Path to the YAML config file (see config/ALPX3.yaml)')
 
     args = parser.parse_args()
+
+    config = load_config(args.config)
 
     # Assign arguments to variables
     folder_LBC_ERA5 = args.ERA5+'/'
@@ -61,18 +67,18 @@ def main():
     folder_output = args.output+'/'
 
 
-    CAMS_prefix = 'CAMS_AROME_'
-    AROME_prefix = 'ALPX3_ERA5_CAMS_'
-    # AROME_prefix = ALPX3ERA5LBC
+    CAMS_prefix = config["naming"]["cams_interp_prefix"]
+    AROME_prefix = config["naming"]["era5_prefix"]
+    merge_output_prefix = config["naming"]["merge_output_prefix"]
+    tolerance = timedelta(hours=config["runtime"]["match_tolerance_hours"])
+    max_workers = config["runtime"]["max_workers_merge"]
 
     pattern_CAMS = re.compile(r"(\d{8}.\d{4})")
 
 
     os.makedirs(folder_output, exist_ok=True)
 
-    merge_exe = '/home/gmgec/mrgo/lenobler/SAVE/scripts/CAMS/merge_files.py'
-    # merge_exe = '/home/gmgec/mrgo/lenobler/SAVE/scripts/CAMS/merge_CAMS_MMR.py'
-    
+    merge_exe = os.path.join(config["paths"]["scripts_dir"], "merge_files.py")
 
     # merge all folder from LBC folder
     # get all dates from CAMS
@@ -89,11 +95,11 @@ def main():
 
     filenames = sorted(f for f in os.listdir(folder_LBC_ERA5) if f.startswith(AROME_prefix))
 
-    with ProcessPoolExecutor(max_workers=16) as executor:  # adjust workers to your CPU
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(process_file, f, pattern_CAMS, AROME_prefix, list_date_CAMS,
                             folder_LBC_ERA5, folder_CAMS, folder_output,
-                            CAMS_prefix, merge_exe): f
+                            CAMS_prefix, merge_output_prefix, tolerance, merge_exe): f
             for f in filenames
         }
 
@@ -103,7 +109,7 @@ def main():
                 if result:
                     print(result)
             except Exception as e:
-                print(f"Error processing {futures[future]}: ".join(e))
+                print(f"Error processing {futures[future]}: {e}")
 
 
 if __name__ == "__main__":
