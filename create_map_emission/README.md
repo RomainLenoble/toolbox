@@ -93,7 +93,8 @@ the script and `dict_var_to_treat.py` directly.
 - create new PGD with aerosols emisions following the above script
 - update the sfx nml: 
   ```
-   &NAM_CH_EMIS_PGD NEMIS_PGD_NBR = 6,
+   &NAM_CH_EMIS_PGD 
+      NEMIS_PGD_NBR = 6,
       CEMIS_PGD_NAME(1)='BC_em',
       NEMIS_PGD_TIME(1)=1,
       CEMIS_PGD_AREA(1)='ALL',
@@ -120,6 +121,7 @@ the script and `dict_var_to_treat.py` directly.
       CEMIS_PGD_ATYPE(6)='ARI',
       /
   ```
+  - Create a new PGD with this nml
   - update the files read by surfex to manage the emission, for tactic: `ChemAeroSURFEX.nam`:
   ```
     AGREGATION
