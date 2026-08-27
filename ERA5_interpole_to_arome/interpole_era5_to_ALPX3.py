@@ -71,27 +71,31 @@ def interpole_file(fic_aer, fic_out, config):
         f.write(namelist_content)
 
     cmd = [gl_bin, "-lbc", "ifs", "-n", "naminterp", fic_aer_abs, "-o", fic_out_abs]
-    print("Running:", " ".join(cmd))
+    print("Running:", " ".join(cmd), flush=True)
 
-    # Capture gl's own stdout/stderr instead of letting it interleave with
-    # every other worker's output in the job log, and print it clearly
-    # tagged with the input file if gl fails, so the actual error is easy
-    # to find (not just the numeric exit code).
-    result = subprocess.run(cmd, cwd=workdir, capture_output=True, text=True)
+    # Stream gl's stdout/stderr line by line (tagged with the input file)
+    # instead of buffering it until the whole call finishes -- with many
+    # workers running in parallel and long-running gl calls, capturing the
+    # output would leave you staring at a silent log until each one exits.
+    # We still keep the full text around so a failure can be reported with
+    # everything gl printed, not just its numeric exit code.
+    tag = os.path.basename(fic_aer_abs)
+    lines = []
+    proc = subprocess.Popen(
+        cmd, cwd=workdir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+    )
+    for line in proc.stdout:
+        print(f"[{tag}] {line}", end="", flush=True)
+        lines.append(line)
+    proc.wait()
+    output = "".join(lines)
 
-    if result.returncode != 0:
+    if proc.returncode != 0:
         print(
-            f"gl FAILED on {fic_aer_abs} (exit code {result.returncode}), "
-            f"work directory kept at {workdir} for inspection:\n"
-            f"--- gl stdout ---\n{result.stdout}\n"
-            f"--- gl stderr ---\n{result.stderr}"
+            f"gl FAILED on {fic_aer_abs} (exit code {proc.returncode}), "
+            f"work directory kept at {workdir} for inspection",
+            flush=True,
         )
-        raise subprocess.CalledProcessError(
-            result.returncode, cmd, output=result.stdout, stderr=result.stderr
-        )
+        raise subprocess.CalledProcessError(proc.returncode, cmd, output=output)
 
-    # gl's own stdout can still be useful on success; print it, then clean
-    # up the scratch directory since there's nothing left to inspect.
-    if result.stdout:
-        print(result.stdout)
     shutil.rmtree(workdir, ignore_errors=True)
