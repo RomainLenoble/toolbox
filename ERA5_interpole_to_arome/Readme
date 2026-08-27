@@ -1,0 +1,18 @@
+
+## Important sites:
+
+* parameter database: https://codes.ecmwf.int/grib/param-db/
+* MARS user documentation: https://confluence.ecmwf.int/display/UDOC/MARS+user+documentation
+* ECMWF web api
+* Archive catalogue: https://confluence.ecmwf.int/display/WEBAPI/ECMWF+Web+API+Home
+* ERA5 catalog: https://apps.ecmwf.int/data-catalogues/era5/?class=ea
+* tuto: https://confluence.ecmwf.int/display/UDOC/HRES%3A+Atmospheric+%28oper%29%2C+Model+level+%28ml%29%2C+Forecast+%28fc%29%3A+Guidelines+to+write+efficient+MARS+requests
+
+## Parameters needed for arome: 
+* Atmosphere
+    * param=130/138/155, # t, d, vo
+    * param=133, # specific humidity
+    * param=152, # LNSP
+    * WIND U/v: 131, 132
+* Surface: 
+    * param=27/28/29/30/32/33/39/40/41/42/129/139/141/160/161/162/170/172/183/236,
