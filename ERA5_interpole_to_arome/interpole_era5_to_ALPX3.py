@@ -1,92 +1,78 @@
-#!/home/gmgec/mrgo/lenobler/miniforge3/bin/python3
+#!/usr/bin/env python3
 import os
-import sys
+import shutil
 import subprocess
-import textwrap
-import numpy as np
-# import lib.lima_utils as lu
-    
-   
-def interpole_file(fic_aer, fic_out):
+import tempfile
 
-    # Environment setup
-    os.environ["ULIMIT"] = "unlimited"  # mimic ulimit -s unlimited
-
-    # Paths
-    GLPATH = "/home/gmgec/mrgo/lenobler/SAVE/code/GL//belenos/bin"
-    GEOM = "ALPX3"
-    CLIMATEFILE = f"/scratch/climat/CEDRE/data/atm/BCOND/{GEOM}CIE/Const.Clim.{GEOM}CIE.01"
-
-    # Levels
-    NLEV_AROME = 60
-
-    # AHALF_AROME = (
-    #     "0.0000, 271.828183, 973.188280, 2030.384267, 3319.226030, 4795.396231, "
-    #     "6433.281895, 8215.601394, 10096.132563, 11988.307779, 13834.682123, "
-    #     "15583.858088, 17187.794886, 18602.008555, 19786.497669, 20706.971826, "
-    #     "21336.176625, 21655.154375, 21654.293789, 21349.398517, 20799.963249, "
-    #     "20063.043810, 19186.977397, 18211.807506, 17170.190348, 16088.493072, "
-    #     "14987.896852, 13885.397395, 12794.651871, 11726.658425, 10690.276989, "
-    #     "9692.612455, 8739.286691, 7834.626887, 6981.796027, 6182.888017, "
-    #     "5439.005999, 4750.338217, 4116.241919, 3535.342466, 3005.652443, "
-    #     "2524.714255, 2089.769666, 1705.297418, 1374.651994, 1093.095953, "
-    #     "855.930809, 658.559613, 496.535186, 365.596754, 261.697342, "
-    #     "181.023925, 120.012010, 75.356071, 44.017046, 23.227928, 10.498339, "
-    #     "3.618836, 0.665238, 0.000000, 0.000000"
-    # )
-
-    AHALF_AROME = ("0.000000, 271.828183, 973.188280, 2030.384267, 3319.226030, 4795.396231, 6433.281895, 8215.601394, 10096.132563, 11988.307779, 13834.682123, 15583.858088, 17187.794886, 18602.008555, 19786.497669, 20706.971826, 21336.176625, 21655.154375, 21654.293789, 21349.398517, 20799.963249, 20063.043810, 19186.977397, 18211.807506, 17170.190348, 16088.493072, 14987.896852, 13885.397395, 12794.651871, 11726.658425, 10690.276989, 9692.612455, 8739.286691, 7834.626887, 6981.796027, 6182.888017, 5439.005999, 4750.338217, 4116.241919, 3535.342466, 3005.652443, 2524.714255, 2089.769666, 1705.297418, 1374.651994, 1093.095953, 855.930809, 658.559613, 496.535186, 365.596754, 261.697342, 181.023925, 120.012010, 75.356071, 44.017046, 23.227928, 10.498339, 3.618836, 0.665238, 0.000000, 0.000000")
-
-    # BHALF_AROME = (
-    #     "0., 0.0000000000, 0.0000000000, 0.0000000000, 0.0000000000, "
-    #     "0.0000000000, 0.0000000000, 0.0000000000, 0.0003309675, 0.0017502454, "
-    #     "0.0047467200, 0.0097630763, 0.0172188647, 0.0275061852, 0.0409789128, "
-    #     "0.0579393888, 0.0786244617, 0.1031923737, 0.1317118797, 0.1630387143, "
-    #     "0.1956652968, 0.2291058092, 0.2629653973, 0.2969317553, 0.3307628186, "
-    #     "0.3642733463, 0.3973221613, 0.4298010406, 0.4616256930, 0.4927289008, "
-    #     "0.5230556870, 0.5525602477, 0.5812043462, 0.6089568564, 0.6357941683, "
-    #     "0.6617012022, 0.6866728253, 0.7107155105, 0.7338491181, 0.7561087224, "
-    #     "0.7775464304, 0.7982331608, 0.8182603537, 0.8373613875, 0.8552205742, "
-    #     "0.8718800642, 0.8873812719, 0.9017642034, 0.9150669112, 0.9273250455, "
-    #     "0.9385714693, 0.9488359088, 0.9581446011, 0.9665198957, 0.9739797401, "
-    #     "0.9805369262, 0.9861978406, 0.9909600628, 0.9948065724, 0.9976807303, "
-    #     "1.0000000000"
-    # )
-    
-    
-    BHALF_AROME = ("0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000330967500, 0.001750245400, 0.004746720000, 0.009763076300, 0.017218864700, 0.027506185200, 0.040978912800, 0.057939388800, 0.078624461700, 0.103192373700, 0.131711879700, 0.163038714300, 0.195665296800, 0.229105809200, 0.262965397300, 0.296931755300, 0.330762818600, 0.364273346300, 0.397322161300, 0.429801040600, 0.461625693000, 0.492728900800, 0.523055687000, 0.552560247700, 0.581204346200, 0.608956856400, 0.635794168300, 0.661701202200, 0.686672825300, 0.710715510500, 0.733849118100, 0.756108722400, 0.777546430400, 0.798233160800, 0.818260353700, 0.837361387500, 0.855220574200, 0.871880064200, 0.887381271900, 0.901764203400, 0.915066911200, 0.927325045500, 0.938571469300, 0.948835908800, 0.958144601100, 0.966519895700, 0.973979740100, 0.980536926200, 0.986197840600, 0.990960062800, 0.994806572400, 0.997680730300, 1.000000000000")
-
-    
-    
-    
-
-    # Climate file symlink
-    if not os.path.exists("climate_aladin"):
-        # os.remove("climate_aladin")
-    	os.symlink(CLIMATEFILE, "climate_aladin")
+import yaml
 
 
-    # Final namelist content with correct indentation
+def load_config(config_path):
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def _fmt(values, decimals):
+    return ", ".join(f"{v:.{decimals}f}" for v in values)
+
+
+def _fortran_bool(value):
+    return ".TRUE." if value else ".FALSE."
+
+
+def interpole_file(fic_aer, fic_out, config):
+    """Interpolate a single ERA5 file to the target domain with GL.
+
+    `config` is a dict loaded from one of the YAML files in config/
+    (see load_config / --config on the calling scripts).
+
+    Each call gets its own scratch working directory so concurrent calls
+    (multiprocessing workers, MPI ranks, or independent job submissions)
+    never share the "climate_aladin" symlink or "naminterp" file in a
+    common cwd. Without this, parallel workers race on
+    `if not os.path.exists("climate_aladin"): os.symlink(...)` and can
+    raise FileExistsError, or worse, one worker's gl subprocess can read
+    a naminterp file half-written by another worker.
+    """
+
+    site = config["site"]
+    domain = config["domain"]
+    levels = config["vertical_levels"]
+    nml = config.get("namelist", {})
+
+    gl_bin = os.path.join(site["gl_bin_dir"], "gl")
+    geom = domain["name"]
+    climate_file = domain["climate_file"].format(name=geom)
+
+    ahalf = _fmt(levels["ahalf"], 6)
+    bhalf = _fmt(levels["bhalf"], 12)
+
     namelist_content = f"""&NAMINTERP
-  OUTGEO%NLEV={NLEV_AROME},
-  AHALF={AHALF_AROME}
-  BHALF={BHALF_AROME}
-  ORDER=3,
-  NE2EALG=2,
-  printlev = 0,
-  lnhdyn=.TRUE.,
-  lqgp=.TRUE.,
-  LATMKEY_ONLY=.FALSE.,
-  lskip_surface=.TRUE.,
-!  EXT_BD_ORO = .TRUE.,
-!  EXT_BD_ORO_FILE='/scratch/work/lenobler/era5_orog_20121017_00',
+  OUTGEO%NLEV={levels['nlev']},
+  AHALF={ahalf}
+  BHALF={bhalf}
+  ORDER={levels['order']},
+  NE2EALG={levels['ne2ealg']},
+  printlev = {nml.get('printlev', 0)},
+  lnhdyn={_fortran_bool(nml.get('lnhdyn', True))},
+  lqgp={_fortran_bool(nml.get('lqgp', True))},
+  LATMKEY_ONLY={_fortran_bool(nml.get('latmkey_only', False))},
+  lskip_surface={_fortran_bool(nml.get('lskip_surface', True))},
 /
 """
-    # Write nml in file
-    with open("naminterp", "w") as f:
-        f.write(namelist_content)
 
-    # Run gl
-    cmd = [os.path.join(GLPATH, "gl"), "-lbc", "ifs", "-n", "naminterp", fic_aer, "-o", fic_out]
-    print("Running:", " ".join(cmd))
-    subprocess.run(cmd)
+    fic_aer_abs = os.path.abspath(fic_aer)
+    fic_out_abs = os.path.abspath(fic_out)
+
+    scratch_dir = site.get("scratch_dir") or None
+    workdir = tempfile.mkdtemp(prefix="gl_interp_", dir=scratch_dir)
+    try:
+        os.symlink(climate_file, os.path.join(workdir, "climate_aladin"))
+        with open(os.path.join(workdir, "naminterp"), "w") as f:
+            f.write(namelist_content)
+
+        cmd = [gl_bin, "-lbc", "ifs", "-n", "naminterp", fic_aer_abs, "-o", fic_out_abs]
+        print("Running:", " ".join(cmd))
+        subprocess.run(cmd, cwd=workdir, check=True)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)

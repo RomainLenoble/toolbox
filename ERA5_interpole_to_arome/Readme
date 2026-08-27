@@ -1,4 +1,28 @@
 
+## Setup for a new user
+
+Please use  `sbatch_interpole_multiproc.sh`, it is faster, I keep the other for history. 
+
+You should copy the entire folder to your own home directory. Then run
+`sbatch sbatch_interpole_multiproc.sh` 
+
+
+Please check the file edit `config/ALPX3.yaml` (or copy it to a new domain file):
+* `paths.input_folder` / `paths.output_folder` — where to read the raw
+  files from and write the interpolated output to for this run.
+* `site.gl_bin_dir` — path to the `gl` binary. Please use mine for now.
+* `input_files.*` — the naming convention of the source files
+  (prefix/suffix filter and the regex/format used to read their embedded
+  timestamp). Adjust if your input files aren't named like the ones here.
+  `era5_2*` The prefix from the era5 files
+* `domain.*` and `vertical_levels.*` — the target geometry and its
+  vertical levels; do not change if you use the arome-CNRM config with 60 levels. 
+
+`CONFIG` in the sbatch script picks which of these files to use; the
+scripts also accept `--input_folder`/`--output_folder` on the command
+line if you want to override the config for a one-off run without
+editing it.
+
 ## Important sites:
 
 * parameter database: https://codes.ecmwf.int/grib/param-db/
