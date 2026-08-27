@@ -19,6 +19,9 @@ module load ffmpeg/4.4
 
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
+# gl (Fortran) can need a large stack; rlimits set here are inherited by
+# the python3 process below and by the gl subprocess it launches.
+ulimit -s unlimited
 
 NNODES=$SLURM_JOB_NUM_NODES
 

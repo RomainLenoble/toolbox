@@ -18,6 +18,9 @@ module load ffmpeg/4.4
 
 NNODES=$SLURM_JOB_NUM_NODES
 MPITASKS_PER_NODE=$((NNODES*16))
+# gl (Fortran) can need a large stack; rlimits set here are inherited by
+# the python3 process below and by the gl subprocess it launches.
+ulimit -s unlimited
 
 # Resolve this repo's directory so the script called below is always the
 # git-tracked version next to this sbatch file, not a stray personal copy.
