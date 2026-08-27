@@ -21,7 +21,7 @@ paths:
 
   # Shell command sourced before every pipeline step (sets up the HPC module
   # environment and epygram). Leave empty ("") to skip.
-  env_setup: "source /home/gmgec/mrgo/lenobler/SAVE/code/GL/config/setenv.belenos && . with_epygram_old"
+  env_setup: "source /home/gmgec/mrgo/lenobler/SAVE/code/GL/config/setenv.belenos && module use ~mary/public/modulefiles && module load python/3.7.6nomkl && module load epygram && module load ffmpeg/4.4"
 
   # Directory containing the pipeline scripts (interpole_current_folder.py,
   # Interpol_CAMS_to_ALPX3.py, interpolate_grib_hourly_epygram.py,
