@@ -1,0 +1,207 @@
+#!/bin/bash
+###
+# ALADIN 49t1_clim1 with SURFEX
+# Grid ALPX12
+# Without xias
+#
+#
+# Do not modify the simulation installer section (the last one) or it will not work any more...
+#
+# Other sections can be modified according to the simulation.
+#
+# To install the simulation, just launch this param:
+# ./param_...
+#
+# To check the data request
+# ./param_... -tdr
+
+# Note: ECLIS variables are capitalized
+###
+
+########################################################
+#              BASIC CONFIGURATION KEYS
+########################################################
+eclis=/home/gmgec/mrgo/lenobler/SAVE/code/eclis/
+
+geoma=NFR
+geomah=NFR2.5
+config=ARCM
+vpack=cy49t1_clim1.03
+namelist_version=$vpack
+restart_version=$vpack
+forlbc=ERA5
+#forvol_version=CMIP7
+forghg_version=CMIP6ssp370
+LAROME_ECLIS=1
+
+folder_name=$(basename "$PWD")
+EXPID=$folder_name
+# [ -z $EXPID ] && EXPID=$(basename $0 | sed -e 's/param_//g')
+GROUP=TEST_SUITE
+TITRE=$EXPID
+RUNMAIL=romain.lenoble@meteo.fr
+RUNDIR=/scratch/work/lenobler/eclis/${GROUP}/${EXPID}/rundirs
+
+########################################################
+#              PERIOD TO PROCESS
+########################################################
+INIDATE=20200102
+ENDDATE=20200102
+INITIME=0
+
+########################################################
+#               MODEL BINARY USED
+########################################################
+pack=/home/gmgec/mrgo/lenobler/packs/arome_v7.4.IMPIIFC2302DP.y/
+# pack=/home/gmgec/mrgo/lenobler/packs/arome_v7.4_dev.IMPIIFC2302DP.y/
+
+packupdcli=/home/gmgec/mrgo/lenobler/packs/arome_v7.IMPIIFC2302DP.y
+ATMEXE=$pack/bin/MASTERODB
+# UPDCLIARP=$packupdcli/bin/updcliarp_cy49_LAM
+UPDCLILSM=$packupdcli/bin/updclisfx_cy49_LAM_SST-CIE
+pack_tool=/scratch/climat/packs/CY49T1_clim1.03.IMPIIFC2302DP.y
+DATRES=$pack_tool/bin/DATRES
+DATLSMRES=$pack_tool/bin/DATSFXRES
+#DATSFXRESARO --> unlocks larome implicit plugin
+
+IOSEXE=/scratch/work/lenobler/xios/XIOS-2730--debug-intel18--oasistrunk-fcmold/bin/xios_server.exe
+
+########################################################
+#               NAMELISTS USED
+########################################################
+namelist=$(pwd)
+UPDNAMARP=${eclis}/toolbox/update_namaro.sh
+#UPDNAMARO --> unlocks larome implicit plugin
+# ATMNAMREF=$namelist/atm/nam.atm.${geomah}.cy49
+# LSMNAMREF=$namelist/sfx/nam.sfx.${geomah}.${vpack}
+
+ATMNAMREF=${namelist}/nam_atm_cy49_cas.nml
+LSMNAMREF=${namelist}/nam_sfx_cy49.nml
+########################################################
+#               RESTART FILES and LBC
+########################################################
+PLUGINS+=" ${eclis}/plugins/atm_lbc_nudging"
+ATM_NUDLBC_DATA_DIR="/scratch/work/lenobler/DATA/LBC/03_NFR/"
+ATM_NUDLBC_EXPE=${forlbc}
+ATM_NUDLBC_GRE=RE${geoma}${ATM_NUDLBC_EXPE}_DDDD_.tar
+ATM_NUDLBC_GRED=
+ATM_NUDLBC_INDEX=""
+ATM_NUDLBC_GEN="ELSCF0123ALBC"
+ATM_NUDLBC_SIZE=
+ATM_NUDLBC_LS="NFR3ERA5LBC"
+ATM_NUDLBC_SKIP_RECUP=2
+ATM_NUDLBC_PER=1
+ATM_NUDLBC_MACH=belenos
+
+# restart adn PGD
+ATMREST=${ATM_NUDLBC_DATA_DIR}/${ATM_NUDLBC_LS}${INIDATE}.0000
+LSMREST=/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.NFR.cy49_202001010000.fa
+LSMPGD=/scratch/work/lenobler/DATA/NFR25/PGD.fa
+
+ATMRESOUT=ICMSH0123+$((_NNNN_/60))
+LSMRESIN=ICMSH0123INIT.sfx
+LSMRESOUT=ICMSH0123+_NNNN_.sfx
+LSMPGDIN=Const.Clim.sfx
+LSMOUTFAPATT=ICMSH0123+IECH.sfx
+
+########################################################
+#              BOUNDARY CONDITIONS
+########################################################
+bcond=/home/gmgec/mrgo/haradercoustaue/AROME49/${geomah}/clim
+BCOND=$bcond/Const.Clim.MM ; YEAR_BCD=no
+DATA_LSM=/scratch/climat/CEDRE/data/sfx/ecoclimap_cy46/ecoclimap*.bin
+
+########################################################
+#              FORCINGS
+########################################################
+forc=/home/gmgec/mrgo/haradercoustaue/AROME49/${geomah}/FORCINGS
+climaer=${forc}/FORAER
+climvol=${forc}/FORVOL
+climsst=/scratch/work/lenobler/DATA/NFR25/SST/
+climghg=/scratch/climat/CEDRE/data/atm/GHG/CMIP6
+YEAR_SUL=SCEN_1850_2100 ; FORSUL=$climaer/AOD550SIA_EUC12_${geomah}_YYYYMM.ieee
+YEAR_BCA=SCEN_1850_2100 ; FORBCA=$climaer/AOD550BC_EUC12_${geomah}_YYYYMM.ieee
+YEAR_ORA=SCEN_1850_2100 ; FORORA=$climaer/AOD550OM_EUC12_${geomah}_YYYYMM.ieee
+YEAR_SDA=SCEN_1850_2100 ; FORSDA=$climaer/AOD550SD_EUC12_${geomah}_YYYYMM.ieee
+YEAR_SSA=SCEN_1850_2100 ; FORSSA=$climaer/AOD550SS_EUC12_${geomah}_YYYYMM.ieee
+YEAR_VOL=SCEN_1850_2100 ; FORVOL=$climvol/aod_volcan_strato_v3_YYYYMM_${geomah}CIE.ieee
+#YEAR_OZO=SCEN_1850_2100 ; FOROZO=$climozo/ozone_slarp624.v1_${geomah}CIEl60_YYYYMM.ieee
+YEAR_GHG=SCEN_1850_2100 ; FORGHG=$climghg/GHG_${forghg_version}.dat
+YEAR_SST=SCEN_1850_2100 ; FORSST=$climsst/sst_CNRM-ESM2-1-NFR25_YYYYMM.ieee 
+#YEAR_SIC=SCEN_1850_2014 ; FORSIC=$bcond/atm/SIC/${geomah}/CMIP6-amipbc/sic_amipbc_YYYYMM.ieee
+
+########################################################
+#               XIOS / FULLPOS
+########################################################
+LIOS=1
+LATMIOS=1
+LLSMIOS=1
+LATMOUT=1
+KEEPFT=1
+LIOXOUT=1
+LIOXKEEP=1  # to keep data on belenos
+#LIOXSAFE=0  # to save data on hendrix
+
+src_xios="/home/gmgec/mrgo/lenobler/SAVE/ECLIS/00_param/xios/02_xios_gfl"
+IOSNAMREF="${src_xios}/iodef.xml"
+GFL_XML_GEN=1
+GFL_XML_OUT="${namelist}/gfl_fields.xml"
+
+OTHER_FILES="${src_xios}/arpsfx.xml ${src_xios}/atmo_fields.xml ${src_xios}/surfex_fields.xml ${GFL_XML_OUT} "
+OTHER_FILES+=" ${namelist}/arpsfx_files.xml"
+
+########################################################
+#               DATA REQUEST
+########################################################
+# No data request in this version
+
+########################################################
+#              PLUGINS
+########################################################
+DATA_ECRAD=/scratch/work/lenobler/DATA/ecRad/
+#IMPLICIT_PLUGINS_DIR="/scratch/climat/CEDRE/param/v7/plugins/implicit"
+IMPLICIT_PLUGINS_DIR="${eclis}/plugins/implicit"
+# `PLUGINS+=" /home/gmgec/mrgo/lenobler/SAVE/ECLIS/plugin/latm"
+PLUGINS+=" ${eclis}/plugins/cy49t1_clim1.i2302.omp.xios.sh"
+PLUGINS+=" ${eclis}/plugins/arome_launch_omp.sh"
+PLUGINS+=" /scratch/climat/CEDRE/param/v7/plugins/plugin_ecRad"
+
+
+
+COMPUTE_BEFORE_ADD="ln -s \${RUNDIR}/Const.Clim \${RUNDIR}/const.clim.000"
+
+# Warnings may be raised because of this plugin.
+#PLUGINS_POSTPRO=${eclis}/plugins/postprocessing/plugin_postpro_nodr2xml
+#ASSEMBLE_MAXSIZE=4000
+
+
+
+############## TACTIC configuration ####################
+# No interactive aerosols in this configuration
+
+########################################################
+#              JOBS CHARACTERISTICS
+########################################################
+NMONTH=1 ; QUEUE=normal256 ; #QOS=
+ELAPSFRONT=08:00:00 ; MEMFRONT=4Gb
+ELAPS=0:30:00 ; MEM=240Gb
+
+
+NPROC_IOS=6        #  total number of XIOS ranks
+NODES_IOS_EXCL=0    # number of nodes hosting exclusive XIOS servers
+NODES_IOS_SHAR=0    # number of nodes sharing  XIOS servers
+
+NODE_ARP=6
+NTHREADS_ARP=2
+NPROC_ARP=$(( (NODE_ARP*128) / NTHREADS_ARP - NPROC_IOS ))
+
+SAVE_RESTART_PER=1
+SAVE_LISTING="A"
+ATMLISTOUT="NODE.001_01 ifs.stat"
+LSMLISTOUT=""
+SAVE_CPL_FILES=0
+
+ARCHIVING=BEFORE
+
+installer=${eclis?}/scripts/install
+[[  "$*"  != *nogo* ]] && . $installer $*

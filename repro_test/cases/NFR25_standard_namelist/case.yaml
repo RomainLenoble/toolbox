@@ -1,0 +1,7 @@
+name: NFR25_standard_namelist
+description: >
+  NFR25 standard namelist -- ALADIN 49t1_clim1 with SURFEX, grid ALPX12,
+  ERA5 LBCs, INIDATE=ENDDATE=20200102.
+# Paths below follow the repro_test convention (case name = folder name
+# everywhere), so this file only needs to exist if you want to leave
+# yourself notes about the case.
