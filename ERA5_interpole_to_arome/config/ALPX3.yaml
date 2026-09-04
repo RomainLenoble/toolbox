@@ -13,14 +13,14 @@ site:
   # Optional: root directory in which per-task scratch work directories are
   # created (naminterp + climate_aladin symlink live here, one per file).
   # Leave null to use the system default temp dir ($TMPDIR or /tmp).
-  scratch_dir: null
+  scratch_dir: /scratch/work/lenobler/tmp/GL
 
 paths:
   # Folder containing the raw input files to interpolate.
   input_folder: /scratch/work/lenobler/DATA/LBC/00_ERA5/ALEX_2020
   # Folder the interpolated output files are written to (created if
   # missing).
-  output_folder: /scratch/work/lenobler/DATA/LBC/04_ALEX_2020
+  output_folder: /scratch/work/lenobler/DATA/LBC/06_test
 
 input_files:
   # Only filenames starting with this prefix are processed.
