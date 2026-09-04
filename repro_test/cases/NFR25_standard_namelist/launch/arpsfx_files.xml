@@ -1,0 +1,119 @@
+<!-- 
+XIOS-3.0 xml sub-file for Surfex + Arpege
+
+This file defines some output files 
+
+It must be sourced by another XIOS xml file as by 
+   <file_definition  src="./arpsfx_files.xml"/>
+
+Ref: 
+  - for XIOS : https://forge.ipsl.jussieu.fr/ioserver/wiki 
+  - for XIAS (implementation in Surfex and Arpege) : http://www.cnrm-game-meteo.fr/cm/spip.php?article60
+-->
+
+<context id="surfex"> 
+
+  <axis_definition>
+    <axis_group prec="8" >
+
+      <!-- Standard pressure levels set (To be used for fields sent at the end of time step - ie when sent from FullPos) -->
+      <!-- Use the level from CAMS -->
+      <axis id="pstd" axis_ref="paxis" n_glo="25"  name="pstd"
+        value="(0,24)[ 100000. 95000. 92500. 90000. 85000. 80000. 70000. 60000. 50000. 40000. 30000. 25000. 20000. 15000. 10000. 7000. 5000. 3000. 2000. 1000. 700. 500. 300. 200. 100. ]"
+      />
+
+      <!-- Standard altitude levels set (To be used for fields sent at the end of time step - ie when sent from FullPos) -->
+      <axis id="zstd" axis_ref="zaxis" n_glo="40" name="zstd"
+        value="(0,39)[ 240. 720. 1200. 1680. 2160. 2640. 3120. 3600. 4080. 4560. 5040. 5520. 6000. 6480. 6960. 7440. 7920. 8400. 8880. 9360. 9840. 10320. 10800. 11280. 11760. 12240. 12720. 13200. 13680. 14160. 14640. 15120. 15600. 16080. 16560. 17040. 17520. 18000. 18480. 18960. ]"
+      />
+    
+    </axis_group>  
+  </axis_definition>
+
+<file_definition type="one_file">
+  <file_group timeseries="exclusive" append="true" time_units="days" time_counter_name="time" time_counter="exclusive" time_stamp_name="creation_date" time_stamp_format="%Y-%m-%dT%H:%M:%SZ" compression_level="4">
+
+    <file ts_prefix="@IOXDIR@/@EXPID@_arpsfx_hour" output_freq="1h" split_freq="1mo" split_freq_format="%y%mo" enabled="true" sync_freq='24h'>
+      <variable name="EXPID" type="string"> @EXPID@ </variable>
+      <field_group operation="average" expr="@this" default_value="1.e+20" enabled="true" ts_enabled="true" >
+        <field_group grid_ref="C_grid" >
+          <field field_ref="ps"     name="ps"	  />
+          <field field_ref="psl"    name="psl"	  />
+          <!-- Near-surface atmospheric variables -->
+          <field field_ref="tas"    name="tas"    />
+          <field field_ref="hurs"   name="hurs"   />
+          <field field_ref="huss"   name="huss"   />
+          <field field_ref="uas"    name="uas"    />
+          <field field_ref="vas"    name="vas"    />
+          <field field_ref="sfcWind"    name="sfcWind"    />
+          <field field_ref="evspsbl"    name="evspsbl"    />
+          <!-- Surface precipitation -->
+          <!-- <field field_ref="pr"     name="pr"     /> -->
+          <!-- TOA radiative fluxes -->
+          <field field_ref="rst"    name="rst"    />
+          <field field_ref="rlut"   name="rlut"   />
+          <field field_ref="rsdt"   name="rsdt"   />
+          <field field_ref="rsut"   name="rsut"   />
+          <field field_ref="rstcs"  name="rstcs"  />
+          <field field_ref="rlutcs" name="rlutcs" />
+          <!-- Surface radiative fluxes -->
+          <field field_ref="rss"    name="rss"    />
+          <field field_ref="rsds"   name="rsds"   />
+          <field field_ref="rsdscs" name="rsdscs" />
+          <field field_ref="rsus"   name="rsus"   />
+          <field field_ref="rls"    name="rls"    />
+          <field field_ref="rlds"   name="rlds"   />
+          <field field_ref="rldscs" name="rldscs" />
+          <field field_ref="rlus"   name="rlus"   />
+          <field field_ref="rlscs"  name="rlscs"  />
+          <field field_ref="rsscs"  name="rsscs"  />
+          <!-- Clouds -->
+          <!-- <field field_ref="clt100"    name="clt"    /> -->
+          <field field_ref="clth100"   name="clth"   />
+          <field field_ref="cltm100"   name="cltm"   />
+          <field field_ref="cltl100"   name="cltl"   />
+          <!-- Surface variables -->
+          <field field_ref="ts"    name="ts"   />
+          <!-- Surface turbulent heat fluxes -->
+          <field field_ref="hfls"    name="hfls"   />
+          <field field_ref="hfss"    name="hfss"   />
+          <field field_ref="tauu"    name="tauu"   />
+          <field field_ref="tauv"    name="tauv"   />
+          <!-- Sea variables -->
+          <field field_ref="sst"    name="sst"   />
+        </field_group>
+        <field_group grid_ref="C_pstd" >
+          <field field_ref="zg_p"      name="zg"	/> 
+          <field field_ref="ta_p"      name="ta"	/>
+          <field field_ref="ua_p"      name="ua"	/>
+          <field field_ref="va_p"      name="va"	/>
+          <field field_ref="hus_p"     name="hus" />
+          <field field_ref="hur_p"     name="hur" />
+          <field field_ref="wap_p"     name="wap" />
+        </field_group>
+      </field_group>
+    </file>
+        <file ts_prefix="@IOXDIR@/@EXPID@_arpsfx_HF" output_freq="15ts" split_freq="1mo" split_freq_format="%y%mo" enabled="true" sync_freq='5h'>
+      <field_group operation="average" expr="@this" default_value="1.e+20" enabled="true" ts_enabled="true" >
+        <field_group grid_ref="C_grid" >
+          <field field_ref="pr"        name="pr"     />
+           <!-- <field field_ref="clt100"    name="clt"    />  -->
+        </field_group>
+      </field_group>
+    </file>
+
+    <file ts_prefix="@IOXDIR@/@EXPID@_arpsfx_day" output_freq="1d" split_freq="1mo" split_freq_format="%y%mo" enabled="true" sync_freq='5h'>
+      <field_group expr="@this" default_value="1.e+20" enabled="true" ts_enabled="true" >
+        <field_group grid_ref="C_grid" >
+          <field field_ref="tmin"    name="tmin"     />
+          <field field_ref="tmax"    name="tmax"    />
+          <field field_ref="sfcWindmax"    name="sfcWindmax"    />
+          <field field_ref="pr"        name="pr"     operation="average"/>
+          <field field_ref="pr"        name="pr_max"     operation="maximum"/>
+        </field_group>
+      </field_group>
+    </file>
+  </file_group>
+</file_definition>
+
+</context>

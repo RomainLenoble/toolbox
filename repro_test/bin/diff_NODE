@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+"""
+diffnode.py -- compare two IFS/ARPEGE/AROME NODE.* forecast log files and
+report differences in gridpoint/spectral norms and (if present) observation
+Jo statistics.
+
+Python port of the Perl `diffNODE` script (which used Tools::Frame::frame()
+for banner printing).
+
+Usage:
+    diffnode.py NODE.001_01 NODE.001_01.ref [options]
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import re
+import sys
+from dataclasses import dataclass, field
+
+
+# --------------------------------------------------------------------------
+# Frame / centering helpers (port of Tools::Frame::frame and diffNODE::center)
+# --------------------------------------------------------------------------
+
+def center(s: str, n: int) -> str:
+    """Pad `s` up to length `n`, alternating: append a space, then prepend
+    a space, then append, ... (matches the Perl `center` sub)."""
+    i = 0
+    while len(s) < n:
+        if i % 2:
+            s = " " + s
+        else:
+            s = s + " "
+        i += 1
+    return s
+
+
+def frame(text: str, width: int | None = None, df: int = 3) -> str:
+    """Draw an ASCII box around `text`, wrapping onto multiple lines if
+    needed. Faithful port of Tools::Frame::frame()."""
+    if width is None:
+        width = len(text) + 2 * df
+
+    inner = width - 2 * df
+    if inner <= 0:
+        raise ValueError(f"Cannot frame text: `{text}'")
+
+    line1 = "*" + "-" * (width - 2) + "*"
+    line2 = "|" + " " * (width - 2) + "|"
+
+    out_lines = [line1]
+    for _ in range((df - 1) // 2):
+        out_lines.append(line2)
+
+    t = text
+    while t:
+        s, t = t[:inner], t[inner:]
+        out_lines.append("|" + " " * (df - 1) + center(s, inner) + " " * (df - 1) + "|")
+
+    for _ in range((df - 1) // 2):
+        out_lines.append(line2)
+    out_lines.append(line1)
+
+    return "\n".join(out_lines) + "\n"
+
+
+# --------------------------------------------------------------------------
+# Parsing: gridpoint (GPNORM) + spectral (SPECTRAL NORMS) values
+# --------------------------------------------------------------------------
+
+RE_GPNORM_LINE = re.compile(r"^\s*GPNORM\s+")
+RE_AVE0 = re.compile(r"AVE\s+0")
+RE_AVE_STRIP = re.compile(r"^\s*AVE\s*")
+
+RE_SPECTRAL_HEADER = re.compile(r"^\s*SPECTRAL\s+NORMS\s+-\s+")
+RE_LEV = re.compile(r"^\s+LEV\s+")
+RE_AVE = re.compile(r"^\s+AVE\s+")
+
+
+def _build_gpregs(gpnorms: list[str]) -> list[re.Pattern]:
+    if not gpnorms:
+        return []
+    if len(gpnorms) == 1 and gpnorms[0] == "*":
+        return [re.compile(r"^\s*GPNORM\s+\b(\S+)\b")]
+    return [re.compile(r"^\s*GPNORM\s+\b(" + re.escape(name) + r")\b") for name in gpnorms]
+
+
+def xave(path: str, gpnorms: list[str], spnorms: list[str]) -> list[tuple[str, str]]:
+    """Extract (field_name, value_string) pairs from GPNORM and
+    SPECTRAL NORMS blocks, in file order."""
+    with open(path, "r", errors="replace") as fh:
+        lines = fh.readlines()
+    n = len(lines)
+    gpregs = _build_gpregs(gpnorms)
+
+    x: list[tuple[str, str]] = []
+    i = 0
+    while i < n:
+        line = lines[i]
+        handled = False
+
+        # ---- GPNORM ----
+        if RE_GPNORM_LINE.match(line):
+            for gpreg in gpregs:
+                m = gpreg.match(line)
+                if m:
+                    field_name = m.group(1)
+                    i += 1
+                    handled = True
+                    if i < n and RE_AVE0.search(lines[i]):
+                        s = RE_AVE_STRIP.sub("", lines[i])
+                        for val in re.split(r"\s+", s.strip()):
+                            if val:
+                                x.append((field_name, val))
+                        i += 1
+                    # else: the peeked line wasn't a level-0 AVE row;
+                    # it's discarded, i is already past it (== "next MAIN")
+                    break
+            if handled:
+                continue
+
+        # ---- SPECTRAL NORMS ----
+        if RE_SPECTRAL_HEADER.match(line):
+            i += 1
+            while i < n:
+                m_lev = RE_LEV.match(lines[i])
+                if not m_lev:
+                    break  # goto AGAIN: re-test this same line as next `line`
+                header = lines[i][m_lev.end():]
+
+                idxmap: dict[str, int] = {}
+                for name in spnorms:
+                    p = header.find(name)
+                    if p >= 0:
+                        idxmap[name] = p
+                spnormk = sorted((nm for nm in spnorms if nm in idxmap),
+                                  key=lambda nm: idxmap[nm])
+
+                i += 1
+                if i >= n:
+                    break
+                m_ave = RE_AVE.match(lines[i])
+                if not m_ave:
+                    break  # goto AGAIN
+                spnormv = [v for v in re.split(r"\s+", lines[i][m_ave.end():].strip()) if v]
+                i += 1
+
+                for k, v in zip(spnormk, spnormv):
+                    x.append((k, v))
+                # loop again for the next SPECTRAL NORMS block (AGAIN_SPNORMS)
+            continue  # goto AGAIN with current lines[i]
+
+        i += 1
+
+    return x
+
+
+# --------------------------------------------------------------------------
+# Parsing: observation counts / Jo
+# --------------------------------------------------------------------------
+
+RE_OBSTYPE = re.compile(r"ObsType\s+(\d+)\s+Total:\s*(\d+)\s+(\S+)\s+")
+RE_JOGLOBAL = re.compile(r"Jo Global\s*:\s*(\d+)\s+(\S+)")
+
+
+def xobstype(path: str) -> dict[int, dict[str, float]]:
+    x: dict[int, dict[str, float]] = {}
+    with open(path, "r", errors="replace") as fh:
+        for line in fh:
+            m = RE_OBSTYPE.search(line)
+            if m:
+                x[int(m.group(1))] = {"number": int(m.group(2)), "JO": float(m.group(3))}
+    return x
+
+
+def xjog(path: str) -> dict[str, float] | None:
+    result = None
+    with open(path, "r", errors="replace") as fh:
+        for line in fh:
+            m = RE_JOGLOBAL.search(line)
+            if m:
+                result = {"number": int(m.group(1)), "JO": float(m.group(2))}
+    return result
+
+
+# --------------------------------------------------------------------------
+# Norms comparison
+# --------------------------------------------------------------------------
+
+@dataclass
+class NormsResult:
+    groups: list[list[str]] = field(default_factory=lambda: [[]])
+    hist: dict[int, int] = field(default_factory=dict)
+    zero: int = 0
+    numb: int = 0
+    nout: int = 0
+
+
+def sci_round(val: float, prec: int = 9) -> tuple[float, str]:
+    """Round `val` the way Perl's sprintf('%17.9e', $val) + 0. does:
+    format then re-parse, so downstream comparisons use the same
+    truncated precision that gets printed."""
+    s = f"{val:.{prec}e}"
+    return float(s), s
+
+
+def compare_norms(fx1: list[tuple[str, str]], fx2: list[tuple[str, str]],
+                   tag1: str, norm_max_diff: float) -> NormsResult:
+    res = NormsResult()
+
+    for (f1, x1), (f2, x2) in zip(fx1, fx2):
+        if f1 != f2:
+            raise SystemExit(f"Field mismatch {f1} != {f2}")
+
+        x1s, x2s = x1.strip(), x2.strip()
+        if x1s and x2s:
+            try:
+                v1 = float(x1s)
+                v2 = float(x2s)
+            except ValueError:
+                res.groups.append([])
+                continue
+
+            dx = v1 - v2
+            dr = 2 * dx / (v1 + v2) if (v1 + v2) != 0 else 0.0
+
+            dx_r, sdx = sci_round(dx)
+            dr_r, sdr = sci_round(dr)
+
+            flagged = dr_r > norm_max_diff
+            flag = "*" if flagged else ""
+
+            line = (f" {tag1} | {center(f1, 20):20s} | {v1:17.9e}  |  {v2:17.9e}  |  "
+                    f"{sdx:>17s}  |  {sdr:>17s} {flag}\n")
+            res.groups[-1].append(line)
+
+            if flagged:
+                res.nout += 1
+
+            if abs(dr_r) > 0:
+                nbucket = math.floor(math.log10(abs(dr_r)))
+                res.hist[nbucket] = res.hist.get(nbucket, 0) + 1
+            else:
+                res.zero += 1
+            res.numb += 1
+        else:
+            res.groups.append([])
+
+    return res
+
+
+# --------------------------------------------------------------------------
+# Output
+# --------------------------------------------------------------------------
+
+def print_norms_report(res: NormsResult, tag1: str, tag2: str, norm_max_diff: float,
+                        out=sys.stdout) -> None:
+    out.write(frame("NORMS DIFFERENCES", 125))
+
+    out.write(f" {tag1} | {center('FIELD', 20):20s} | {center('NORM(REF)', 18):18s} | "
+              f"{center('NORM(EXP)', 19):19s} | {center('NORM(REF)-NORM(EXP)', 19):19s} | "
+              f"{center('(NORM(REF)-NORM(EXP))', 19):19s}\n")
+    out.write(f" {tag1} | {'':20s} | {'':18s} | {'':19s} | {'':19s} | "
+              f"{center('/NORM(REF)', 19):19s}\n")
+
+    for group in res.groups:
+        if not group:
+            break
+        out.writelines(group)
+
+    out.write("\n")
+
+    diff_cumul = 0
+    perc_cumul = 0.0
+    for n1 in sorted(res.hist):
+        n2 = n1 + 1
+        d = res.hist[n1]
+        perc = 100 * d / res.numb if res.numb else 0.0
+        diff_cumul += d
+        perc_cumul += perc
+        out.write(f" {tag2} | 1e{n1:+03d} .. 1e{n2:+03d} | {d:3d} / {res.numb:3d} | "
+                   f"{diff_cumul:3d} / {res.numb:3d} | {perc:6.2f} %, {perc_cumul:6.2f} %\n")
+
+    if res.nout:
+        out.write("\n")
+        warn = (f"WARNING : SOME NORMS DIFFERENCES ARE OUTSIDE ALLOWED LIMIT OF "
+                f"{100 * norm_max_diff:6.2f} %\n")
+        out.write(warn * 5)
+
+    out.write("\n")
+
+
+def compute_obs_diff(ot1: dict, ot2: dict) -> dict | None:
+    if ot1 and ot2:
+        return {
+            "number": abs(ot1["number"] - ot2["number"]),
+            "JO": 100 * 2 * abs(ot1["JO"] - ot2["JO"]) / abs(ot1["JO"] + ot2["JO"])
+            if (ot1["JO"] + ot2["JO"]) != 0 else 0.0,
+        }
+    return None
+
+
+def print_obs_report(ot1: dict[int, dict], ot2: dict[int, dict],
+                      jog1: dict | None, jog2: dict | None,
+                      jo_max_diff: float, out=sys.stdout) -> None:
+    not1 = (max(ot1.keys()) + 1) if ot1 else 0
+    not2 = (max(ot2.keys()) + 1) if ot2 else 0
+    not_ = max(not1, not2)
+
+    if not_ <= 0 and jog1 is None and jog2 is None:
+        return
+
+    out.write(frame("OBSERVATIONS DIFFERENCES", 125))
+    out.write(f" OBS_DIFF | {'Type':>6s} | {'NOBS(REF)':>10s} | {'JO(REF)':>13s}  | "
+              f"{'NOBS(EXP)':>10s} | {'JO(EXP)':>13s}  | {'NOBS(EXP)-NOBS(REF)':>20s} | "
+              f"{'JO(EXP)-JO(REF) %':>15s}\n")
+
+    def fmt_pair(d):
+        if d is None:
+            return f"{'':>10s} | {'':>13s}  "
+        return f"{d['number']:10d} | {d['JO']:13.7e}  "
+
+    def fmt_diff(d):
+        if d is None:
+            return f"{'':>20s} | {'':>15s}"
+        return f"{d['number']:20d} | {d['JO']:9.4f} %      "
+
+    for i in range(1, not_):
+        r1 = ot1.get(i)
+        r2 = ot2.get(i)
+        d12 = compute_obs_diff(r1, r2) if r1 and r2 else None
+        out.write(f" OBS_DIFF | {i:6d} | {fmt_pair(r1)} | {fmt_pair(r2)} | {fmt_diff(d12)}\n")
+
+    if jog1 or jog2:
+        d12 = compute_obs_diff(jog1, jog2) if jog1 and jog2 else None
+        out.write(f" OBS_DIFF | {'GLOBAL':>6s} | {fmt_pair(jog1)} | {fmt_pair(jog2)} | "
+                   f"{fmt_diff(d12)}\n")
+
+        if d12 and d12["JO"] > 100 * jo_max_diff:
+            out.write("\n")
+            warn = (f"WARNING : GLOBAL JO DIFFERENCE IS OUTSIDE ALLOWED LIMIT OF "
+                    f"{100 * jo_max_diff:12.6f} %\n")
+            out.write(warn * 5)
+
+    out.write("\n")
+
+
+# --------------------------------------------------------------------------
+# Main
+# --------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="diffnode.py",
+        description="Compare two NODE.* forecast log files (norms + observation Jo diffs).")
+    parser.add_argument("file1", help="reference NODE file")
+    parser.add_argument("file2", help="experiment NODE file")
+    parser.add_argument("--spnorms", default="VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY",
+                         help="comma-separated spectral norm field names")
+    parser.add_argument("--gpnorms", default="U VELOCITY,U VELOCITY,SURFACE PRESSURE,TEMPERATURE",
+                         help='comma-separated gridpoint norm field names ("*" = any)')
+    parser.add_argument("--norm-max-diff", type=float, default=0.05,
+                         help="relative-diff threshold for norms (default 0.05 = 5%%)")
+    parser.add_argument("--jo-max-diff", type=float, default=0.03,
+                         help="relative-diff threshold for global Jo (default 0.03 = 3%%)")
+    args = parser.parse_args(argv)
+
+    spnorms = [s for s in args.spnorms.split(",") if s != ""]
+    gpnorms = [s for s in args.gpnorms.split(",") if s != ""]
+
+    tag1, tag2 = "NORMDIFF", "NORMSTAT"
+
+    fx1 = xave(args.file1, gpnorms, spnorms)
+    fx2 = xave(args.file2, gpnorms, spnorms)
+
+    res = compare_norms(fx1, fx2, tag1, args.norm_max_diff)
+    print_norms_report(res, tag1, tag2, args.norm_max_diff)
+
+    ot1 = xobstype(args.file1)
+    ot2 = xobstype(args.file2)
+    jog1 = xjog(args.file1)
+    jog2 = xjog(args.file2)
+
+    print_obs_report(ot1, ot2, jog1, jog2, args.jo_max_diff)
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
