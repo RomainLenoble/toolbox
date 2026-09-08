@@ -122,7 +122,7 @@ prepare_and_submit() {
         #     tail -n 30 "$here/results/$rid/launch.log" >&2
         #     exit 1
         # fi
-        # launch_eclis
+        launch_eclis
         :
     )
     echo ">>> [$rid] submitted."
