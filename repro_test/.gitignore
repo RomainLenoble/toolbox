@@ -1,3 +1,5 @@
 /.runs/
 /results/*
 !/results/.gitkeep
+*.log
+*.err
