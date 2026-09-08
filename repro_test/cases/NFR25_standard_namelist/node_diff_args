@@ -1,0 +1,9 @@
+# Extra diff_NODE flags for this case (whitespace-separated, # comments ok).
+#
+# This case's NODE.001_01 has no SPECTRAL NORMS section, so compare the
+# physical GPNORM microphysics fields instead. (With per-field aggregation
+# this stays ~7 summary rows regardless of run length.) The default
+# --spnorms names simply match nothing here, which is fine. Skipped on
+# purpose: EZDIAG*/MF_*/RAD_* diagnostics, and CLOUD_* which are often
+# all-zero.
+--gpnorms HUMI.SPECIFI,TKE,ICE_CRYSTAL,RAIN,SNOW,GRAUPEL,CLOUD_FRACTI
