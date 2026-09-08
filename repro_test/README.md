@@ -12,17 +12,19 @@ repro_test/
 │   ├── diff_NODE                 # NODE.001_01 spectral/gridpoint-norm comparator (also standalone)
 │   ├── diff_netcdf               # netCDF variable comparator
 │   └── diff_fa_grib             # FA / GRIB field comparator (epygram)
+├── lib/
+│   └── run_paths.sh             # where a run's live outputs sit (sourced by compare_*.sh)
 ├── cases/<name>/
 │   ├── case.yaml                 # optional notes/description
 │   ├── node_diff_args            # optional: extra diff_NODE flags for this case
-│   ├── netcdf_vars               # optional: netCDF field tags to fetch/compare
+│   ├── netcdf_vars               # optional: netCDF field tags to compare
 │   ├── fa_grib_files            # optional: FA/GRIB output filenames to compare
 │   └── launch/                   # param_Eclis + namelists + xml needed to launch
 ├── references/<name>/
 │   ├── NODE.001_01               # the log this case is checked against
 │   ├── netcdf/<tag>.nc           # netCDF fields this case is checked against
 │   └── fa_grib/<filename>       # FA/GRIB files this case is checked against
-├── results/<name>/               # gitignored: fresh NODE.001_01, netcdf/, diff reports, launch.log
+├── results/<name>/               # gitignored: diff reports + launch.log only (outputs are NOT copied here)
 └── .runs/<name>/                 # gitignored: scratch working dir used to launch (see run_test.sh)
 ```
 
@@ -46,11 +48,24 @@ Convention: everywhere, `<name>` is the case's folder name (also its
 ./run_test.sh <name>              # copies cases/<name>/launch -> .runs/<name>, launches param_Eclis
 ```
 
-This only *submits* the job (it's an async cluster job via mtool/sbatch) --
-it doesn't wait for completion. Once the run has finished, fetch
-`~/relance/TEST_SUITE/<name>/NODE.001_01` from the cluster (`TEST_SUITE` is
-the `GROUP` set in every case's `param_Eclis`, `<name>` is the `EXPID`) and
-put it at `results/<name>/NODE.001_01` locally.
+This submits the job (an async cluster job via mtool/sbatch), then waits
+for `NODE.001_01` to appear and stop changing and calls `compare_test.sh`.
+With `--no-wait` it just submits and prints the command to run once the
+job is done.
+
+The run's outputs are read **in place** — nothing is copied. `lib/run_paths.sh`
+resolves where they are (`<GROUP>` and `<INIDATE>` come from the run's
+`param_Eclis`, `<run_id>` = the `EXPID`):
+
+| what | where it's read from |
+|---|---|
+| NODE.001_01 | `$HOME/relances/<GROUP>/<run_id>/rundir/NODE.001_01` |
+| FA/GRIB `<fname>` (per `cases/<name>/fa_grib_files`) | `$HOME/relances/<GROUP>/<run_id>/rundir/<fname>` |
+| netCDF `<tag>` (per `cases/<name>/netcdf_vars`) | `$HOME/relances/<GROUP>/<run_id>/iox_keep/<INIDATE>/*_arpsfx_<tag>_*.nc` |
+
+Set `$REPRO_RUN_BASE` to override the `$HOME/relances` prefix (e.g. a
+local mount of belenos). Run `compare_test.sh` on a host that can see
+that tree.
 
 `./run_all.sh` does this for every case under `cases/`.
 
@@ -72,9 +87,7 @@ cases with the same new executable:
 ./run_all.sh --variant v7.5 --set pack=/home/gmgec/mrgo/lenobler/packs/arome_v7.5.IMPIIFC2302DP.y/
 ```
 
-Once the jobs finish, fetch each run's
-`~/relance/TEST_SUITE/<name>__v7.5/NODE.001_01` from the cluster and put it
-at `results/<name>__v7.5/NODE.001_01` locally, then:
+Once the jobs finish:
 
 ```
 ./compare_test.sh <name> --variant v7.5      # or: ./compare_all.sh --variant v7.5
@@ -85,14 +98,46 @@ reference (`references/<name>/NODE.001_01`) -- the point is checking the
 new executable still reproduces the known-good result, not recording a new
 one.
 
+### `--repro`: check the executable two ways at once
+
+`--repro` (needs `--variant`) launches a **second, identical** run under
+`<name>__<tag>__rep` and, once both finish, does both checks:
+
+```
+./run_test.sh <name> --variant v7.5 --set pack=/home/.../arome_v7.5.../ --repro
+```
+
+| check | what | tolerance |
+|---|---|---|
+| **[1/2] bit-reproducible** | `<tag>` vs `<tag>__rep` — does the executable give the same answer run-to-run? | bit-exact (`--rtol 0 --atol 0 --atol-frac 0 --gpnorms '*'`, netCDF/FA-GRIB `--rel-max-diff 0`) |
+| **[2/2] vs reference** | `<tag>` vs `references/<name>/` — does it still match the known-good result? | the case's normal tolerances (`node_diff_args`, `--rel-max-diff` default) |
+
+`run_test.sh` exits `0` only if both pass, `1` if either FAILs, `2` if
+either could not run. Add `--repro-set KEY=VALUE` to also vary something
+in the `__rep` run (e.g. `--repro-set NODE_ARP=3` for a different MPI
+decomposition — a stronger reproducibility test). `--no-compare` submits
+and waits without comparing; `--no-wait` just submits and prints the two
+`compare_test.sh` commands.
+
+Standalone, against an already-finished pair:
+
+```
+./compare_test.sh <name> --variant v7.5 --against v7.5__rep    # [1/2]
+./compare_test.sh <name> --variant v7.5                        # [2/2]
+```
+
+`--against <tag2>` also works on `compare_netcdf.sh` / `compare_fa_grib.sh`
+/ `compare_all.sh`.
+
 ## Comparing
 
 ```
 ./compare_test.sh <name>          # NODE.001_01 + (if configured) netCDF + FA/GRIB
 ```
 
-Always runs `bin/diff_NODE` (results vs references `NODE.001_01`), saving
-its report to `results/<name>/diff_<timestamp>.txt`. Then, when the case
+Always runs `bin/diff_NODE` (the run's live `NODE.001_01` vs the
+reference), saving its report to `results/<name>/diff_<timestamp>.txt`.
+Then, when the case
 has a `cases/<name>/netcdf_vars` and/or `cases/<name>/fa_grib_files` list,
 it also runs `compare_netcdf.sh` / `compare_fa_grib.sh` for that case (with
 their defaults). Overall exit code: `0` → `PASS` (everything within
@@ -109,8 +154,8 @@ Flags you always want for a case can live in `cases/<name>/node_diff_args`
 (whitespace-separated, `#` comments, quotes respected), e.g. a line
 `--rtol 1e-10` or `--preset arome-lam`.
 
-`./compare_all.sh` runs this for every case that already has a
-`results/<name>/NODE.001_01`, skipping the rest, and prints a summary.
+`./compare_all.sh` runs this for every case whose run has produced a
+NODE.001_01, skipping the rest, and prints a summary.
 
 ### FA / GRIB output
 
@@ -123,11 +168,11 @@ Files to compare are listed one per line in `cases/<name>/fa_grib_files`
 opens it with epygram and iterates over **every field inside**, reporting
 the same metrics as `diff_netcdf` (max abs diff, RMS abs diff, RMS diff
 relative to the reference field's own RMS; spectral fields are converted to
-gridpoint space first). Reference at `references/<name>/fa_grib/<filename>`,
-fresh copy at `results/<run_id>/fa_grib/<filename>`. Exit codes as
-elsewhere: `0` PASS, `1` FAIL (a field's relative RMS diff exceeds
-`--rel-max-diff`, default `1e-4`), other → `???`. Also usable standalone:
-`bin/diff_fa_grib ref.fa exp.fa [--fields A,B] [--rel-max-diff 1e-4]`.
+gridpoint space first). Reference at `references/<name>/fa_grib/<filename>`;
+the run's file is read in place from its rundir (see `lib/run_paths.sh`).
+Exit codes as elsewhere: `0` PASS, `1` FAIL (a field's relative RMS diff
+exceeds `--rel-max-diff`, default `1e-4`), other → `???`. Also usable
+standalone: `bin/diff_fa_grib ref.fa exp.fa [--fields A,B] [--rel-max-diff 1e-4]`.
 
 ## `bin/diff_NODE` (also usable standalone)
 
