@@ -1,64 +1,100 @@
 #!/usr/bin/env bash
-# Compare one case's (or one variant's) fresh outputs against the case's
-# stored references: the NODE.001_01 log always, plus -- when the case has
-# a cases/<name>/netcdf_vars and/or cases/<name>/fa_grib_files list -- its
-# netCDF and FA/GRIB outputs (delegating to compare_netcdf.sh /
-# compare_fa_grib.sh).
+# Compare one case's (or one variant's) run outputs against the case's
+# stored references -- or, with --against, against another run of the same
+# case (a bit-reproducibility check). Covers the NODE.001_01 log always,
+# plus -- when the case has a cases/<name>/netcdf_vars and/or
+# cases/<name>/fa_grib_files list -- its netCDF and FA/GRIB outputs
+# (delegating to compare_netcdf.sh / compare_fa_grib.sh).
 #
-# Usage: ./compare_test.sh <case_name> [--variant <tag>] [fresh_NODE_path] [-- diff_NODE options]
-#   - a variant always compares against the SAME reference as its base case
-#     (references/<case_name>/NODE.001_01) -- the point of a variant (e.g. a
-#     new executable via run_test.sh --set) is to check it still matches
-#     the case's existing reference, not to set a new one.
-#   - if fresh_NODE_path is omitted, defaults to results/<run_id>/NODE.001_01
-#     (run_id = "<case_name>", or "<case_name>__<tag>" with --variant)
-#   - extra options after "--" go to diff_NODE only (e.g. --rtol 1e-3,
-#     --max-nstep 12); the netCDF / FA-GRIB diffs run with their defaults
-#     (call compare_netcdf.sh / compare_fa_grib.sh directly to tune those)
+# The run's outputs are read *in place* from where the job wrote them
+# (see lib/run_paths.sh) -- nothing is copied locally. Only the diff
+# reports land under results/<run_id>/. Run this on a host that can see
+# the run tree (or set $REPRO_RUN_BASE to a mount of it).
 #
-# Exit: 0 if everything is within tolerance, 1 if any comparison FAILs,
-# 2 if none FAILed but some comparison could not run.
+# Usage: ./compare_test.sh <case_name> [--variant <tag>] [--against <tag>] [run_NODE_path] [-- diff_NODE options]
+#   --variant <tag>   which run's outputs to check (run_id "<case>__<tag>";
+#                      omitted = "<case>").
+#   --against <tag2>  compare against run "<case>__<tag2>" instead of the
+#                      stored reference, and demand *bit-exact* agreement
+#                      (diff_NODE --rtol 0 --atol 0 --atol-frac 0 --gpnorms '*',
+#                      diff_netcdf/diff_fa_grib --rel-max-diff 0). Use to
+#                      check a new executable reproduces itself run-to-run.
+#                      cases/<name>/node_diff_args is skipped in this mode.
+#   run_NODE_path     override the run's NODE.001_01 path (default: live).
+#   after "--"        extra options for diff_NODE only (e.g. --rtol 1e-3,
+#                      --max-nstep 12); the netCDF / FA-GRIB diffs run with
+#                      their defaults (call those scripts directly to tune).
+#
+# A --variant is otherwise compared against the SAME reference as its base
+# case -- the point of a variant (e.g. a new executable via run_test.sh
+# --set) is to check it still matches the known-good result.
+#
+# Exit: 0 if everything agrees, 1 if any comparison FAILs, 2 if none FAILed
+# but some comparison could not run.
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <case_name> [--variant <tag>] [fresh_NODE_path] [-- diff_NODE options]" >&2
+    echo "Usage: $0 <case_name> [--variant <tag>] [--against <tag>] [run_NODE_path] [-- diff_NODE options]" >&2
     exit 1
 fi
 case_name="$1"; shift
 
 variant=""
-if [ "${1:-}" = "--variant" ]; then
-    variant="$2"; shift 2
-fi
+against=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --variant) variant="$2"; shift 2 ;;
+        --against) against="$2"; shift 2 ;;
+        --) break ;;
+        --*) break ;;
+        *) break ;;
+    esac
+done
+
 run_id="$case_name"
 [ -n "$variant" ] && run_id="${case_name}__${variant}"
 label="$case_name"
 [ -n "$variant" ] && label="$case_name (variant: $variant)"
 
-result="$here/results/$run_id/NODE.001_01"
+against_run_id=""
+if [ -n "$against" ]; then
+    against_run_id="${case_name}__${against}"
+    label="$label  [repro: vs $against]"
+fi
+
+source "$here/lib/run_paths.sh"
+
+result="$(rp_node "$run_id")"
 if [ $# -gt 0 ] && [ "$1" != "--" ]; then
     result="$1"; shift
 fi
 [ "${1:-}" = "--" ] && shift
 
-ref="$here/references/$case_name/NODE.001_01"
-[ -f "$ref" ] || { echo "Missing reference log: $ref" >&2; exit 1; }
-[ -f "$result" ] || { echo "Missing fresh log: $result" >&2; echo "(copy the run's NODE.001_01 there, or pass its path as an argument)" >&2; exit 1; }
+# what we diff the run against
+if [ -n "$against_run_id" ]; then
+    ref="$(rp_node "$against_run_id")"
+    [ -f "$ref" ] || { echo "Missing run NODE.001_01 for --against: $ref" >&2; exit 1; }
+else
+    ref="$here/references/$case_name/NODE.001_01"
+    [ -f "$ref" ] || { echo "Missing reference log: $ref" >&2; exit 1; }
+fi
+[ -f "$result" ] || { echo "Missing run NODE.001_01: $result" >&2; echo "(is the job finished? are you on the right host? or pass its path as an argument)" >&2; exit 1; }
 
-# Per-case extra diff_NODE args (e.g. a tighter --rtol, a --preset, a
-# --fields-from), from cases/<case>/node_diff_args if present. Whitespace-
-# separated tokens, quotes respected, '#' starts a comment. e.g.:
-#     --preset arome-lam
-#     --rtol 1e-8 --max-nstep 12
-#     --spnorms "VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY"
+# diff_NODE args:
+#   - reference mode: per-case cases/<case>/node_diff_args (tuned tolerances)
+#   - --against mode: bit-exact, compare everything; node_diff_args skipped
 extra_args=()
-args_file="$here/cases/$case_name/node_diff_args"
-if [ -f "$args_file" ]; then
-    while IFS= read -r tok; do
-        [ -n "$tok" ] && extra_args+=("$tok")
-    done < <(sed 's/#.*//' "$args_file" | xargs -n1 2>/dev/null || true)
+if [ -n "$against" ]; then
+    extra_args=(--rtol 0 --atol 0 --atol-frac 0 --gpnorms '*')
+else
+    args_file="$here/cases/$case_name/node_diff_args"
+    if [ -f "$args_file" ]; then
+        while IFS= read -r tok; do
+            [ -n "$tok" ] && extra_args+=("$tok")
+        done < <(sed 's/#.*//' "$args_file" | xargs -n1 2>/dev/null || true)
+    fi
 fi
 
 out_dir="$here/results/$run_id"
@@ -77,13 +113,15 @@ case "$rc" in
     *) echo "???   [$label / NODE]  -- diff_NODE could not compare (rc=$rc, see $out)"; any_error=1 ;;
 esac
 
-variant_args=()
-[ -n "$variant" ] && variant_args=(--variant "$variant")
+# forwarded to the netCDF / FA-GRIB sub-comparisons
+sub_args=()
+[ -n "$variant" ] && sub_args+=(--variant "$variant")
+[ -n "$against" ] && sub_args+=(--against "$against")
 
 # --- netCDF outputs -------------------------------------------------------
 if [ -f "$here/cases/$case_name/netcdf_vars" ]; then
     echo
-    "$here/compare_netcdf.sh" "$case_name" "${variant_args[@]+"${variant_args[@]}"}"
+    "$here/compare_netcdf.sh" "$case_name" "${sub_args[@]+"${sub_args[@]}"}"
     case "$?" in
         0) : ;;
         1) any_fail=1 ;;
@@ -94,7 +132,7 @@ fi
 # --- FA / GRIB outputs ---------------------------------------------------
 if [ -f "$here/cases/$case_name/fa_grib_files" ]; then
     echo
-    "$here/compare_fa_grib.sh" "$case_name" "${variant_args[@]+"${variant_args[@]}"}"
+    "$here/compare_fa_grib.sh" "$case_name" "${sub_args[@]+"${sub_args[@]}"}"
     case "$?" in
         0) : ;;
         1) any_fail=1 ;;
@@ -110,4 +148,4 @@ elif [ "$any_error" -eq 1 ]; then
     echo "???   [$label]  -- one or more comparisons could not run"
     exit 2
 fi
-echo "PASS  [$label]  -- all comparisons within tolerance"
+echo "PASS  [$label]  -- all comparisons agree"
