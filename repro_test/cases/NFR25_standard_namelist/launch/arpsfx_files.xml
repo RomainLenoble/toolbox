@@ -33,7 +33,7 @@ Ref:
 <file_definition type="one_file">
   <file_group timeseries="exclusive" append="true" time_units="days" time_counter_name="time" time_counter="exclusive" time_stamp_name="creation_date" time_stamp_format="%Y-%m-%dT%H:%M:%SZ" compression_level="4">
 
-    <file ts_prefix="@IOXDIR@/@EXPID@_arpsfx_hour" output_freq="1h" split_freq="1mo" split_freq_format="%y%mo" enabled="true" sync_freq='24h'>
+    <file ts_prefix="@IOXDIR@/" output_freq="1h" split_freq="1mo" split_freq_format="%y%mo" enabled="true" sync_freq='24h'>
       <variable name="EXPID" type="string"> @EXPID@ </variable>
       <field_group operation="average" expr="@this" default_value="1.e+20" enabled="true" ts_enabled="true" >
         <field_group grid_ref="C_grid" >
@@ -41,75 +41,55 @@ Ref:
           <field field_ref="psl"    name="psl"	  />
           <!-- Near-surface atmospheric variables -->
           <field field_ref="tas"    name="tas"    />
-          <field field_ref="hurs"   name="hurs"   />
+          <!-- <field field_ref="hurs"   name="hurs"   />
           <field field_ref="huss"   name="huss"   />
           <field field_ref="uas"    name="uas"    />
           <field field_ref="vas"    name="vas"    />
           <field field_ref="sfcWind"    name="sfcWind"    />
-          <field field_ref="evspsbl"    name="evspsbl"    />
+          <field field_ref="evspsbl"    name="evspsbl"    /> -->
           <!-- Surface precipitation -->
           <!-- <field field_ref="pr"     name="pr"     /> -->
           <!-- TOA radiative fluxes -->
-          <field field_ref="rst"    name="rst"    />
+          <!-- <field field_ref="rst"    name="rst"    />
           <field field_ref="rlut"   name="rlut"   />
           <field field_ref="rsdt"   name="rsdt"   />
           <field field_ref="rsut"   name="rsut"   />
           <field field_ref="rstcs"  name="rstcs"  />
-          <field field_ref="rlutcs" name="rlutcs" />
+          <field field_ref="rlutcs" name="rlutcs" /> -->
           <!-- Surface radiative fluxes -->
-          <field field_ref="rss"    name="rss"    />
+          <!-- <field field_ref="rss"    name="rss"    /> -->
           <field field_ref="rsds"   name="rsds"   />
-          <field field_ref="rsdscs" name="rsdscs" />
+          <!-- <field field_ref="rsdscs" name="rsdscs" />
           <field field_ref="rsus"   name="rsus"   />
           <field field_ref="rls"    name="rls"    />
           <field field_ref="rlds"   name="rlds"   />
           <field field_ref="rldscs" name="rldscs" />
           <field field_ref="rlus"   name="rlus"   />
           <field field_ref="rlscs"  name="rlscs"  />
-          <field field_ref="rsscs"  name="rsscs"  />
+          <field field_ref="rsscs"  name="rsscs"  /> -->
           <!-- Clouds -->
           <!-- <field field_ref="clt100"    name="clt"    /> -->
-          <field field_ref="clth100"   name="clth"   />
+          <!-- <field field_ref="clth100"   name="clth"   />
           <field field_ref="cltm100"   name="cltm"   />
-          <field field_ref="cltl100"   name="cltl"   />
+          <field field_ref="cltl100"   name="cltl"   /> -->
           <!-- Surface variables -->
-          <field field_ref="ts"    name="ts"   />
+          <!-- <field field_ref="ts"    name="ts"   /> -->
           <!-- Surface turbulent heat fluxes -->
-          <field field_ref="hfls"    name="hfls"   />
-          <field field_ref="hfss"    name="hfss"   />
-          <field field_ref="tauu"    name="tauu"   />
-          <field field_ref="tauv"    name="tauv"   />
+          <!-- <field field_ref="hfls"    name="hfls"   /> -->
+          <!-- <field field_ref="hfss"    name="hfss"   /> -->
+          <!-- <field field_ref="tauu"    name="tauu"   /> -->
+          <!-- <field field_ref="tauv"    name="tauv"   /> -->
           <!-- Sea variables -->
-          <field field_ref="sst"    name="sst"   />
+          <!-- <field field_ref="sst"    name="sst"   /> -->
         </field_group>
         <field_group grid_ref="C_pstd" >
-          <field field_ref="zg_p"      name="zg"	/> 
+          <!-- <field field_ref="zg_p"      name="zg"	/> 
           <field field_ref="ta_p"      name="ta"	/>
           <field field_ref="ua_p"      name="ua"	/>
           <field field_ref="va_p"      name="va"	/>
           <field field_ref="hus_p"     name="hus" />
-          <field field_ref="hur_p"     name="hur" />
+          <field field_ref="hur_p"     name="hur" /> -->
           <field field_ref="wap_p"     name="wap" />
-        </field_group>
-      </field_group>
-    </file>
-        <file ts_prefix="@IOXDIR@/@EXPID@_arpsfx_HF" output_freq="15ts" split_freq="1mo" split_freq_format="%y%mo" enabled="true" sync_freq='5h'>
-      <field_group operation="average" expr="@this" default_value="1.e+20" enabled="true" ts_enabled="true" >
-        <field_group grid_ref="C_grid" >
-          <field field_ref="pr"        name="pr"     />
-           <!-- <field field_ref="clt100"    name="clt"    />  -->
-        </field_group>
-      </field_group>
-    </file>
-
-    <file ts_prefix="@IOXDIR@/@EXPID@_arpsfx_day" output_freq="1d" split_freq="1mo" split_freq_format="%y%mo" enabled="true" sync_freq='5h'>
-      <field_group expr="@this" default_value="1.e+20" enabled="true" ts_enabled="true" >
-        <field_group grid_ref="C_grid" >
-          <field field_ref="tmin"    name="tmin"     />
-          <field field_ref="tmax"    name="tmax"    />
-          <field field_ref="sfcWindmax"    name="sfcWindmax"    />
-          <field field_ref="pr"        name="pr"     operation="average"/>
-          <field field_ref="pr"        name="pr_max"     operation="maximum"/>
         </field_group>
       </field_group>
     </file>

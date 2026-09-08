@@ -9,5 +9,6 @@
 # terms, so it amplifies small floating-point drift. hour_zg (geopotential
 # height) is smoother/larger-magnitude and more standard/interpretable, but
 # a weaker early-warning signal. Comparing both.
-hour_zg
-hour_wap
+_ps_202001-202002.nc
+_rsds_202001-202002.nc
+_wap_202001-202002.nc

@@ -176,13 +176,16 @@
   !  LSPRT=.TRUE.,   !  .T.: if R*T/Rd "virtual temperature" as spectral variablem rm cy49 ? 
   !  LTWOTL=.TRUE., ! .TRUE. if two-time-level semi-Lagrangian scheme will be used ? rm cy49 
    NFPOS=0,
-   NFRHIS=60,
-   NFRSFXHIS=AUTO,
-   NFRPOS=1,
-   NFRSDI=10000,
-   NHISTS(0)=0, ! array containing history write-up steps
-   NPOSTS(0)=0, ! array containing postprocessing steps
-   NSFXHISTS(0)=0. ! array containing history write-up steps (minutes) for surface
+  !  NFRHIS=60,
+  !  NFRSFXHIS=AUTO,
+   NFRHIS=1,
+   NHISTS(0)=-2, NHISTS(1)=-3, NHISTS(2)=-24,
+   NFRSFXHIS=1,
+   NSFXHISTS(0)=-2, NSFXHISTS(1)=-3, NSFXHISTS(2)=-24,
+   NFRSDI=10,
+  !  NHISTS(0)=0, ! array containing history write-up steps
+  !  NPOSTS(0)=0, ! array containing postprocessing steps
+  !  NSFXHISTS(0)=0. ! array containing history write-up steps (minutes) for surface
    LOPDIS=.TRUE.
  /
  &NAMCT1
