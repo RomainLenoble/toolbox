@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""diff_fa_grib -- compare two FA or GRIB files field-by-field (via epygram).
+
+Opens both files with epygram, iterates over every field present in the
+reference, and for each one reports -- exactly like diff_netcdf does for
+netCDF variables -- the max absolute difference, the RMS absolute
+difference, and the RMS difference relative to the reference field's own
+RMS. Spectral fields are transformed to gridpoint space before comparing.
+
+Exits 1 (and prints a WARNING line, greppable like diff_NODE / diff_netcdf)
+if any field's relative RMS diff exceeds --rel-max-diff; exits 2 if nothing
+could be compared at all; exits 0 otherwise.
+
+Usage:
+    diff_fa_grib ref.fa exp.fa [--fields SURFTEMPERATURE,S001WIND.U.PHYS]
+    diff_fa_grib ref.grib exp.grib [--rel-max-diff 1e-4]
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+import numpy as np
+
+try:
+    import epygram
+except ImportError as exc:  # pragma: no cover
+    print(f"diff_fa_grib: cannot import epygram ({exc})", file=sys.stderr)
+    sys.exit(2)
+
+
+def fid_key(fid) -> str:
+    """A stable, printable one-line label for a field id (str for FA, dict
+    for GRIB)."""
+    if isinstance(fid, dict):
+        # keep it compact and deterministic
+        parts = [f"{k}={fid[k]}" for k in sorted(fid) if k not in ("generatingProcessIdentifier",)]
+        return ",".join(parts)
+    return str(fid)
+
+
+def as_gridpoint_array(field) -> np.ndarray:
+    """Return the field's values as a float64 ndarray with NaN-filled mask,
+    converting from spectral space if needed."""
+    if getattr(field, "spectral", False):
+        field.sp2gp()
+    data = field.getdata(d4=False)
+    return np.ma.filled(np.ma.asarray(data).astype("float64"), np.nan)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="diff_fa_grib",
+        description="Compare two FA/GRIB files field-by-field (max/RMS abs+relative diffs).")
+    parser.add_argument("ref", help="reference FA/GRIB file")
+    parser.add_argument("exp", help="experiment FA/GRIB file")
+    parser.add_argument("--fields", default="",
+                        help="comma-separated field names/ids to restrict to "
+                             "(default: every field in the reference)")
+    parser.add_argument("--rel-max-diff", type=float, default=1e-4,
+                        help="relative-RMS-diff threshold (default 1e-4)")
+    args = parser.parse_args(argv)
+
+    only = [v for v in args.fields.split(",") if v] or None
+
+    try:
+        epygram.init_env()
+    except Exception:  # noqa: BLE001 -- best effort; some builds don't need it
+        pass
+
+    try:
+        rref = epygram.formats.resource(args.ref, "r")
+        rexp = epygram.formats.resource(args.exp, "r")
+    except Exception as exc:  # noqa: BLE001
+        print(f"diff_fa_grib: cannot open input(s): {exc}", file=sys.stderr)
+        return 2
+
+    any_warn = False
+    any_compared = False
+
+    try:
+        ref_fids = rref.listfields()
+    except Exception as exc:  # noqa: BLE001
+        print(f"diff_fa_grib: cannot list fields of {args.ref}: {exc}", file=sys.stderr)
+        return 2
+
+    if only:
+        ref_fids = [f for f in ref_fids if fid_key(f) in only or str(f) in only]
+
+    print(f" FGDIFF | {'FIELD':32s} | {'MAX ABS DIFF':>14s} | {'RMS ABS DIFF':>14s} | {'REL RMS DIFF':>14s}")
+
+    for fid in ref_fids:
+        label = fid_key(fid)
+        try:
+            fref = rref.readfield(fid)
+        except Exception as exc:  # noqa: BLE001
+            print(f" FGDIFF | {label:32s} | SKIP -- unreadable in ref ({exc})")
+            continue
+        try:
+            fexp = rexp.readfield(fid)
+        except Exception as exc:  # noqa: BLE001
+            print(f" FGDIFF | {label:32s} | SKIP -- not present/readable in exp ({exc})")
+            continue
+
+        # a resource can hand back a list when a fid is ambiguous (GRIB)
+        if isinstance(fref, (list, tuple)) or isinstance(fexp, (list, tuple)):
+            print(f" FGDIFF | {label:32s} | SKIP -- ambiguous field id (matches several messages)")
+            continue
+
+        try:
+            r = as_gridpoint_array(fref)
+            e = as_gridpoint_array(fexp)
+        except Exception as exc:  # noqa: BLE001
+            print(f" FGDIFF | {label:32s} | SKIP -- cannot extract data ({exc})")
+            continue
+
+        if r.shape != e.shape:
+            print(f" FGDIFF | {label:32s} | SKIP -- shape mismatch {r.shape} vs {e.shape}")
+            continue
+
+        mask = np.isfinite(r) & np.isfinite(e)
+        if not mask.any():
+            print(f" FGDIFF | {label:32s} | SKIP -- no finite values in common")
+            continue
+
+        diff = e[mask] - r[mask]
+        abs_max = float(np.max(np.abs(diff)))
+        rms_abs = float(np.sqrt(np.mean(diff ** 2)))
+        ref_rms = float(np.sqrt(np.mean(r[mask] ** 2)))
+        if ref_rms != 0:
+            rel_rms = rms_abs / ref_rms
+        else:
+            rel_rms = 0.0 if rms_abs == 0 else float("inf")
+
+        flagged = rel_rms > args.rel_max_diff
+        any_warn = any_warn or flagged
+        any_compared = True
+        flag = " *" if flagged else ""
+
+        print(f" FGDIFF | {label:32s} | {abs_max:14.6e} | {rms_abs:14.6e} | {rel_rms:14.6e}{flag}")
+
+    if any_warn:
+        print()
+        print(f"WARNING : SOME FA/GRIB FIELD DIFFERENCES ARE OUTSIDE ALLOWED LIMIT OF {args.rel_max_diff:.2e}")
+
+    if not any_compared:
+        print("Nothing was actually compared (no common fields / all skipped).", file=sys.stderr)
+        return 2
+    return 1 if any_warn else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

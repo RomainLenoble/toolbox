@@ -1,391 +1,546 @@
 #!/usr/bin/env python3
-"""
-diffnode.py -- compare two IFS/ARPEGE/AROME NODE.* forecast log files and
-report differences in gridpoint/spectral norms and (if present) observation
-Jo statistics.
+"""diff_NODE -- compare two IFS/ARPEGE/AROME NODE.* forecast logs.
 
-Python port of the Perl `diffNODE` script (which used Tools::Frame::frame()
-for banner printing).
+Reworked from the Perl `diffNODE` port for use both standalone ("do these
+two runs agree?") and inside the repro_test suite (clean exit codes, small
+stable reports, JSON).
 
-Usage:
-    diffnode.py NODE.001_01 NODE.001_01.ref [options]
+What it compares
+----------------
+* SPECTRAL NORMS blocks -- the `LOG(PREHYDS)` scalar and the
+  VORTICITY / DIVERGENCE / TEMPERATURE / KINETIC ENERGY norms (AVE row by
+  default, per-level with --levels), each tied to its forecast step and
+  predictor/corrector half (`NORMS AT NSTEP CNT4 (PREDICTOR) N`).
+* GPNORM blocks (gridpoint norms) -- opt in with --gpnorms.
+* Global observation Jo, when present.
+
+Metric
+------
+For each matched value pair (ref v1, exp v2):
+
+    abs_diff = |v2 - v1|
+    rel_diff = |v2 - v1| / |v1|                (informational; inf near 0)
+    flagged  = abs_diff > eff_atol + rtol*|v1|
+    eff_atol = max(--atol, --atol-frac * peak|v1| over that field)
+
+The per-field absolute floor (--atol-frac) is what stops near-zero fields
+(divergence, vorticity averages, ...) from tripping on meaningless noise:
+a difference smaller than a tiny fraction of the field's own peak is not a
+finding. See METRIC_NOTES.md for the (open) question of a chaos-aware
+metric.
+
+Exit codes
+----------
+    0  all matched values within tolerance
+    1  some values exceed tolerance, or the two files don't line up
+    2  usage error / could not parse / nothing to compare
+
+Usage
+-----
+    diff_NODE REF EXP [options]
+    diff_NODE a/NODE.001_01 b/NODE.001_01 --full
+    diff_NODE a b --gpnorms '*' --rtol 1e-3 --json
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import re
 import sys
-from dataclasses import dataclass, field
-
-
-# --------------------------------------------------------------------------
-# Frame / centering helpers (port of Tools::Frame::frame and diffNODE::center)
-# --------------------------------------------------------------------------
-
-def center(s: str, n: int) -> str:
-    """Pad `s` up to length `n`, alternating: append a space, then prepend
-    a space, then append, ... (matches the Perl `center` sub)."""
-    i = 0
-    while len(s) < n:
-        if i % 2:
-            s = " " + s
-        else:
-            s = s + " "
-        i += 1
-    return s
-
-
-def frame(text: str, width: int | None = None, df: int = 3) -> str:
-    """Draw an ASCII box around `text`, wrapping onto multiple lines if
-    needed. Faithful port of Tools::Frame::frame()."""
-    if width is None:
-        width = len(text) + 2 * df
-
-    inner = width - 2 * df
-    if inner <= 0:
-        raise ValueError(f"Cannot frame text: `{text}'")
-
-    line1 = "*" + "-" * (width - 2) + "*"
-    line2 = "|" + " " * (width - 2) + "|"
-
-    out_lines = [line1]
-    for _ in range((df - 1) // 2):
-        out_lines.append(line2)
-
-    t = text
-    while t:
-        s, t = t[:inner], t[inner:]
-        out_lines.append("|" + " " * (df - 1) + center(s, inner) + " " * (df - 1) + "|")
-
-    for _ in range((df - 1) // 2):
-        out_lines.append(line2)
-    out_lines.append(line1)
-
-    return "\n".join(out_lines) + "\n"
-
+from dataclasses import dataclass, field as dc_field
 
 # --------------------------------------------------------------------------
-# Parsing: gridpoint (GPNORM) + spectral (SPECTRAL NORMS) values
+# Presets
 # --------------------------------------------------------------------------
 
-RE_GPNORM_LINE = re.compile(r"^\s*GPNORM\s+")
-RE_AVE0 = re.compile(r"AVE\s+0")
-RE_AVE_STRIP = re.compile(r"^\s*AVE\s*")
-
-RE_SPECTRAL_HEADER = re.compile(r"^\s*SPECTRAL\s+NORMS\s+-\s+")
-RE_LEV = re.compile(r"^\s+LEV\s+")
-RE_AVE = re.compile(r"^\s+AVE\s+")
-
-
-def _build_gpregs(gpnorms: list[str]) -> list[re.Pattern]:
-    if not gpnorms:
-        return []
-    if len(gpnorms) == 1 and gpnorms[0] == "*":
-        return [re.compile(r"^\s*GPNORM\s+\b(\S+)\b")]
-    return [re.compile(r"^\s*GPNORM\s+\b(" + re.escape(name) + r")\b") for name in gpnorms]
-
-
-def xave(path: str, gpnorms: list[str], spnorms: list[str]) -> list[tuple[str, str]]:
-    """Extract (field_name, value_string) pairs from GPNORM and
-    SPECTRAL NORMS blocks, in file order."""
-    with open(path, "r", errors="replace") as fh:
-        lines = fh.readlines()
-    n = len(lines)
-    gpregs = _build_gpregs(gpnorms)
-
-    x: list[tuple[str, str]] = []
-    i = 0
-    while i < n:
-        line = lines[i]
-        handled = False
-
-        # ---- GPNORM ----
-        if RE_GPNORM_LINE.match(line):
-            for gpreg in gpregs:
-                m = gpreg.match(line)
-                if m:
-                    field_name = m.group(1)
-                    i += 1
-                    handled = True
-                    if i < n and RE_AVE0.search(lines[i]):
-                        s = RE_AVE_STRIP.sub("", lines[i])
-                        for val in re.split(r"\s+", s.strip()):
-                            if val:
-                                x.append((field_name, val))
-                        i += 1
-                    # else: the peeked line wasn't a level-0 AVE row;
-                    # it's discarded, i is already past it (== "next MAIN")
-                    break
-            if handled:
-                continue
-
-        # ---- SPECTRAL NORMS ----
-        if RE_SPECTRAL_HEADER.match(line):
-            i += 1
-            while i < n:
-                m_lev = RE_LEV.match(lines[i])
-                if not m_lev:
-                    break  # goto AGAIN: re-test this same line as next `line`
-                header = lines[i][m_lev.end():]
-
-                idxmap: dict[str, int] = {}
-                for name in spnorms:
-                    p = header.find(name)
-                    if p >= 0:
-                        idxmap[name] = p
-                spnormk = sorted((nm for nm in spnorms if nm in idxmap),
-                                  key=lambda nm: idxmap[nm])
-
-                i += 1
-                if i >= n:
-                    break
-                m_ave = RE_AVE.match(lines[i])
-                if not m_ave:
-                    break  # goto AGAIN
-                spnormv = [v for v in re.split(r"\s+", lines[i][m_ave.end():].strip()) if v]
-                i += 1
-
-                for k, v in zip(spnormk, spnormv):
-                    x.append((k, v))
-                # loop again for the next SPECTRAL NORMS block (AGAIN_SPNORMS)
-            continue  # goto AGAIN with current lines[i]
-
-        i += 1
-
-    return x
-
+PRESETS = {
+    # AROME / ALADIN limited area: spectral norms present, gridpoint norms
+    # are microphysics/diagnostic tracers -- compare spectral only by default.
+    "arome-lam": {
+        "spnorms": "VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY",
+        "gpnorms": "",
+    },
+    # Global ARPEGE / IFS.
+    "global": {
+        "spnorms": "VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY,LOG(PREHYDS)",
+        "gpnorms": "",
+    },
+}
+DEFAULT_SPNORMS = "VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY"
 
 # --------------------------------------------------------------------------
-# Parsing: observation counts / Jo
+# Parsing
 # --------------------------------------------------------------------------
+
+RE_NSTEP = re.compile(r"NORMS AT NSTEP CNT4 \((PREDICTOR|CORRECTOR)\)\s+(\d+)")
+RE_SP_HEADER = re.compile(r"^\s*SPECTRAL NORMS\s*-\s*(.+?)\s+(-?\d[0-9.eE+-]*)\s*$")
+RE_LEV = re.compile(r"^\s*LEV\s+(.*\S)\s*$")
+RE_AVE = re.compile(r"^\s*AVE\s+(.*\S)\s*$")
+RE_LEVEL_ROW = re.compile(r"^\s*(\d+)\s+(-?\d[0-9.eE+\- ]*\S)\s*$")
+RE_GP_HEADER = re.compile(r"^\s*GPNORM\s+(.+?)\s+AVERAGE\s+MINIMUM\s+MAXIMUM\s*$")
 
 RE_OBSTYPE = re.compile(r"ObsType\s+(\d+)\s+Total:\s*(\d+)\s+(\S+)\s+")
 RE_JOGLOBAL = re.compile(r"Jo Global\s*:\s*(\d+)\s+(\S+)")
 
+HALF = {"PREDICTOR": "P", "CORRECTOR": "C"}
 
-def xobstype(path: str) -> dict[int, dict[str, float]]:
-    x: dict[int, dict[str, float]] = {}
+
+@dataclass
+class Rec:
+    kind: str            # "sp" | "gp"
+    field: str           # "VORTICITY", "LOG(PREHYDS)", "HUMI.SPECIFI", ...
+    nstep: int | None    # forecast step, or None for pre-forecast dumps
+    half: str            # "P" | "C" | ""
+    level: str           # "AVE" | "L01".. | "" (scalar)
+    stat: str            # "avg" | "min" | "max"
+    value: float
+
+    def key(self) -> tuple:
+        return (self.kind, self.field, self.nstep, self.half, self.level, self.stat)
+
+    def where(self) -> str:
+        step = "init" if self.nstep is None else f"n{self.nstep}{self.half}"
+        loc = self.level or "-"
+        stat = "" if self.stat == "avg" else f".{self.stat}"
+        return f"{step}/{loc}{stat}"
+
+
+def _floats(s: str) -> list[float]:
+    out = []
+    for tok in s.split():
+        try:
+            out.append(float(tok))
+        except ValueError:
+            pass
+    return out
+
+
+def parse_node(path: str, spnorms: set[str], gpnorms: object,
+               want_levels: bool) -> list[Rec]:
+    """gpnorms: set[str] of field names, or the string '*' for all, or an
+    empty set for none."""
+    try:
+        with open(path, "r", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError as exc:
+        sys.exit(f"diff_NODE: cannot read {path}: {exc}")
+
+    recs: list[Rec] = []
+    nstep: int | None = None
+    half = ""
+    i, n = 0, len(lines)
+
+    while i < n:
+        line = lines[i]
+
+        m = RE_NSTEP.search(line)
+        if m:
+            half = HALF[m.group(1)]
+            nstep = int(m.group(2))
+            i += 1
+            continue
+
+        m = RE_SP_HEADER.match(line)
+        if m:
+            scalar_field = m.group(1).strip()
+            try:
+                scalar_val = float(m.group(2))
+            except ValueError:
+                scalar_val = None
+            if scalar_val is not None and (not spnorms or scalar_field in spnorms
+                                           or scalar_field == "LOG(PREHYDS)"):
+                recs.append(Rec("sp", scalar_field, nstep, half, "", "avg", scalar_val))
+            i += 1
+            # optional  LEV <cols> / AVE <vals> / per-level rows
+            if i < n:
+                mlev = RE_LEV.match(lines[i])
+                if mlev:
+                    cols = re.split(r"\s{2,}", mlev.group(1).strip())
+                    i += 1
+                    mave = RE_AVE.match(lines[i]) if i < n else None
+                    if mave:
+                        vals = _floats(mave.group(1))
+                        for c, v in zip(cols, vals):
+                            if not spnorms or c in spnorms:
+                                recs.append(Rec("sp", c, nstep, half, "AVE", "avg", v))
+                        i += 1
+                        while i < n:
+                            mrow = RE_LEVEL_ROW.match(lines[i])
+                            if not mrow:
+                                break
+                            if want_levels:
+                                lev = f"L{int(mrow.group(1)):02d}"
+                                vals = _floats(mrow.group(2))
+                                for c, v in zip(cols, vals):
+                                    if not spnorms or c in spnorms:
+                                        recs.append(Rec("sp", c, nstep, half, lev, "avg", v))
+                            i += 1
+            continue
+
+        m = RE_GP_HEADER.match(line)
+        if m and gpnorms:
+            fld = m.group(1).strip()
+            take = (gpnorms == "*") or (fld in gpnorms)
+            i += 1
+            if take and i < n:
+                mave = RE_AVE.match(lines[i])
+                if mave:
+                    vals = _floats(mave.group(1))
+                    for st, v in zip(("avg", "min", "max"), vals):
+                        recs.append(Rec("gp", fld, nstep, half, "AVE", st, v))
+            continue
+
+        i += 1
+
+    return recs
+
+
+def parse_obs(path: str) -> dict:
+    obstype: dict[int, dict] = {}
+    jog = None
     with open(path, "r", errors="replace") as fh:
         for line in fh:
             m = RE_OBSTYPE.search(line)
             if m:
-                x[int(m.group(1))] = {"number": int(m.group(2)), "JO": float(m.group(3))}
-    return x
-
-
-def xjog(path: str) -> dict[str, float] | None:
-    result = None
-    with open(path, "r", errors="replace") as fh:
-        for line in fh:
+                try:
+                    obstype[int(m.group(1))] = {"n": int(m.group(2)), "jo": float(m.group(3))}
+                except ValueError:
+                    pass
             m = RE_JOGLOBAL.search(line)
             if m:
-                result = {"number": int(m.group(1)), "JO": float(m.group(2))}
-    return result
+                try:
+                    jog = {"n": int(m.group(1)), "jo": float(m.group(2))}
+                except ValueError:
+                    pass
+    return {"obstype": obstype, "jog": jog}
 
 
 # --------------------------------------------------------------------------
-# Norms comparison
+# Comparison
 # --------------------------------------------------------------------------
 
 @dataclass
-class NormsResult:
-    groups: list[list[str]] = field(default_factory=lambda: [[]])
-    hist: dict[int, int] = field(default_factory=dict)
-    zero: int = 0
-    numb: int = 0
-    nout: int = 0
+class Pair:
+    rec_ref: Rec
+    v_exp: float
+    abs_diff: float
+    rel_diff: float          # |d| / |v1|  (inf if v1 == 0 and d != 0)
+    flagged: bool
 
 
-def sci_round(val: float, prec: int = 9) -> tuple[float, str]:
-    """Round `val` the way Perl's sprintf('%17.9e', $val) + 0. does:
-    format then re-parse, so downstream comparisons use the same
-    truncated precision that gets printed."""
-    s = f"{val:.{prec}e}"
-    return float(s), s
+@dataclass
+class FieldSummary:
+    kind: str
+    field: str
+    n: int = 0
+    n_flagged: int = 0
+    max_abs: float = 0.0
+    max_abs_at: str = ""
+    max_rel: float = 0.0
+    max_rel_at: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.n_flagged == 0
 
 
-def compare_norms(fx1: list[tuple[str, str]], fx2: list[tuple[str, str]],
-                   tag1: str, norm_max_diff: float) -> NormsResult:
-    res = NormsResult()
+@dataclass
+class Comparison:
+    pairs: list[Pair] = dc_field(default_factory=list)
+    ref_only: list[tuple] = dc_field(default_factory=list)
+    exp_only: list[tuple] = dc_field(default_factory=list)
+    fields: dict[tuple, FieldSummary] = dc_field(default_factory=dict)
 
-    for (f1, x1), (f2, x2) in zip(fx1, fx2):
-        if f1 != f2:
-            raise SystemExit(f"Field mismatch {f1} != {f2}")
+    @property
+    def n_flagged(self) -> int:
+        return sum(1 for p in self.pairs if p.flagged)
 
-        x1s, x2s = x1.strip(), x2.strip()
-        if x1s and x2s:
-            try:
-                v1 = float(x1s)
-                v2 = float(x2s)
-            except ValueError:
-                res.groups.append([])
-                continue
+    @property
+    def structural_mismatch(self) -> bool:
+        return bool(self.ref_only or self.exp_only)
 
-            dx = v1 - v2
-            dr = 2 * dx / (v1 + v2) if (v1 + v2) != 0 else 0.0
+    @property
+    def ok(self) -> bool:
+        return self.n_flagged == 0 and not self.structural_mismatch and bool(self.pairs)
 
-            dx_r, sdx = sci_round(dx)
-            dr_r, sdr = sci_round(dr)
 
-            flagged = dr_r > norm_max_diff
-            flag = "*" if flagged else ""
+def _index(recs: list[Rec]) -> dict[tuple, list[Rec]]:
+    idx: dict[tuple, list[Rec]] = {}
+    for r in recs:
+        idx.setdefault(r.key(), []).append(r)
+    return idx
 
-            line = (f" {tag1} | {center(f1, 20):20s} | {v1:17.9e}  |  {v2:17.9e}  |  "
-                    f"{sdx:>17s}  |  {sdr:>17s} {flag}\n")
-            res.groups[-1].append(line)
 
+def compare(recs_ref: list[Rec], recs_exp: list[Rec], *,
+            rtol: float, atol: float, atol_frac: float,
+            max_nstep: int | None) -> Comparison:
+    if max_nstep is not None:
+        recs_ref = [r for r in recs_ref if r.nstep is None or r.nstep <= max_nstep]
+        recs_exp = [r for r in recs_exp if r.nstep is None or r.nstep <= max_nstep]
+
+    # per-field magnitude scale from the reference, for the absolute floor
+    scale: dict[tuple, float] = {}
+    for r in recs_ref:
+        fk = (r.kind, r.field)
+        scale[fk] = max(scale.get(fk, 0.0), abs(r.value))
+
+    idx_ref = _index(recs_ref)
+    idx_exp = _index(recs_exp)
+    cmp = Comparison()
+
+    for key in idx_ref.keys() | idx_exp.keys():
+        lr = idx_ref.get(key, [])
+        le = idx_exp.get(key, [])
+        m = min(len(lr), len(le))
+        for j in range(m):
+            r = lr[j]
+            v1, v2 = r.value, le[j].value
+            d = abs(v2 - v1)
+            eff_atol = max(atol, atol_frac * scale.get((r.kind, r.field), 0.0))
+            flagged = d > eff_atol + rtol * abs(v1)
+            rel = d / abs(v1) if v1 != 0 else (0.0 if d == 0 else math.inf)
+            cmp.pairs.append(Pair(r, v2, d, rel, flagged))
+
+            fk = (r.kind, r.field)
+            fs = cmp.fields.get(fk)
+            if fs is None:
+                fs = cmp.fields[fk] = FieldSummary(r.kind, r.field)
+            fs.n += 1
             if flagged:
-                res.nout += 1
+                fs.n_flagged += 1
+            if d > fs.max_abs:
+                fs.max_abs, fs.max_abs_at = d, r.where()
+            if rel > fs.max_rel:
+                fs.max_rel, fs.max_rel_at = rel, r.where()
 
-            if abs(dr_r) > 0:
-                nbucket = math.floor(math.log10(abs(dr_r)))
-                res.hist[nbucket] = res.hist.get(nbucket, 0) + 1
-            else:
-                res.zero += 1
-            res.numb += 1
-        else:
-            res.groups.append([])
+        for j in range(m, len(lr)):
+            cmp.ref_only.append((key, lr[j].where()))
+        for j in range(m, len(le)):
+            cmp.exp_only.append((key, le[j].where()))
 
-    return res
+    return cmp
 
 
 # --------------------------------------------------------------------------
-# Output
+# Reporting
 # --------------------------------------------------------------------------
 
-def print_norms_report(res: NormsResult, tag1: str, tag2: str, norm_max_diff: float,
-                        out=sys.stdout) -> None:
-    out.write(frame("NORMS DIFFERENCES", 125))
-
-    out.write(f" {tag1} | {center('FIELD', 20):20s} | {center('NORM(REF)', 18):18s} | "
-              f"{center('NORM(EXP)', 19):19s} | {center('NORM(REF)-NORM(EXP)', 19):19s} | "
-              f"{center('(NORM(REF)-NORM(EXP))', 19):19s}\n")
-    out.write(f" {tag1} | {'':20s} | {'':18s} | {'':19s} | {'':19s} | "
-              f"{center('/NORM(REF)', 19):19s}\n")
-
-    for group in res.groups:
-        if not group:
-            break
-        out.writelines(group)
-
-    out.write("\n")
-
-    diff_cumul = 0
-    perc_cumul = 0.0
-    for n1 in sorted(res.hist):
-        n2 = n1 + 1
-        d = res.hist[n1]
-        perc = 100 * d / res.numb if res.numb else 0.0
-        diff_cumul += d
-        perc_cumul += perc
-        out.write(f" {tag2} | 1e{n1:+03d} .. 1e{n2:+03d} | {d:3d} / {res.numb:3d} | "
-                   f"{diff_cumul:3d} / {res.numb:3d} | {perc:6.2f} %, {perc_cumul:6.2f} %\n")
-
-    if res.nout:
-        out.write("\n")
-        warn = (f"WARNING : SOME NORMS DIFFERENCES ARE OUTSIDE ALLOWED LIMIT OF "
-                f"{100 * norm_max_diff:6.2f} %\n")
-        out.write(warn * 5)
-
-    out.write("\n")
+def fmt_rel(x: float) -> str:
+    if x == math.inf:
+        return "     inf"
+    return f"{x:8.1e}"
 
 
-def compute_obs_diff(ot1: dict, ot2: dict) -> dict | None:
-    if ot1 and ot2:
-        return {
-            "number": abs(ot1["number"] - ot2["number"]),
-            "JO": 100 * 2 * abs(ot1["JO"] - ot2["JO"]) / abs(ot1["JO"] + ot2["JO"])
-            if (ot1["JO"] + ot2["JO"]) != 0 else 0.0,
-        }
-    return None
+def print_field_table(cmp: Comparison, out) -> None:
+    order = sorted(cmp.fields.values(), key=lambda f: (f.kind, f.field))
+    out.write(f"{'FIELD':<22} {'KIND':<4} {'N':>5} {'FLAG':>5} "
+              f"{'MAX|Δ|':>12} {'@':<12} {'MAXrel':>9} {'@':<12}\n")
+    for f in order:
+        out.write(f"{f.field:<22} {f.kind:<4} {f.n:>5} {f.n_flagged:>5} "
+                  f"{f.max_abs:12.4e} {f.max_abs_at:<12} "
+                  f"{fmt_rel(f.max_rel):>9} {f.max_rel_at:<12}"
+                  f"{'  <-- FAIL' if not f.ok else ''}\n")
 
 
-def print_obs_report(ot1: dict[int, dict], ot2: dict[int, dict],
-                      jog1: dict | None, jog2: dict | None,
-                      jo_max_diff: float, out=sys.stdout) -> None:
-    not1 = (max(ot1.keys()) + 1) if ot1 else 0
-    not2 = (max(ot2.keys()) + 1) if ot2 else 0
-    not_ = max(not1, not2)
+def print_by_step(cmp: Comparison, out) -> None:
+    rows: dict[tuple, FieldSummary] = {}
+    for p in cmp.pairs:
+        r = p.rec_ref
+        k = (r.kind, r.field, r.nstep, r.half)
+        fs = rows.get(k)
+        if fs is None:
+            fs = rows[k] = FieldSummary(r.kind, f"{r.field}")
+        fs.n += 1
+        if p.flagged:
+            fs.n_flagged += 1
+        if p.abs_diff > fs.max_abs:
+            fs.max_abs = p.abs_diff
+        if p.rel_diff > fs.max_rel:
+            fs.max_rel = p.rel_diff
+    out.write(f"{'FIELD':<20} {'STEP':>7} {'N':>4} {'FLAG':>4} {'MAX|Δ|':>12} {'MAXrel':>9}\n")
+    for (kind, fld, nstep, half), fs in sorted(
+            rows.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or -1, kv[0][3])):
+        step = "init" if nstep is None else f"{nstep}{half}"
+        out.write(f"{fld:<20} {step:>7} {fs.n:>4} {fs.n_flagged:>4} "
+                  f"{fs.max_abs:12.4e} {fmt_rel(fs.max_rel):>9}"
+                  f"{'  <-- FAIL' if fs.n_flagged else ''}\n")
 
-    if not_ <= 0 and jog1 is None and jog2 is None:
-        return
 
-    out.write(frame("OBSERVATIONS DIFFERENCES", 125))
-    out.write(f" OBS_DIFF | {'Type':>6s} | {'NOBS(REF)':>10s} | {'JO(REF)':>13s}  | "
-              f"{'NOBS(EXP)':>10s} | {'JO(EXP)':>13s}  | {'NOBS(EXP)-NOBS(REF)':>20s} | "
-              f"{'JO(EXP)-JO(REF) %':>15s}\n")
+def print_full(cmp: Comparison, out, only_flagged: bool) -> None:
+    out.write(f"{'FIELD':<20} {'WHERE':<16} {'REF':>18} {'EXP':>18} "
+              f"{'|Δ|':>12} {'rel':>9}\n")
+    for p in cmp.pairs:
+        if only_flagged and not p.flagged:
+            continue
+        r = p.rec_ref
+        out.write(f"{r.field:<20} {r.where():<16} {r.value:18.9e} {p.v_exp:18.9e} "
+                  f"{p.abs_diff:12.4e} {fmt_rel(p.rel_diff):>9}"
+                  f"{'  *' if p.flagged else ''}\n")
 
-    def fmt_pair(d):
-        if d is None:
-            return f"{'':>10s} | {'':>13s}  "
-        return f"{d['number']:10d} | {d['JO']:13.7e}  "
 
-    def fmt_diff(d):
-        if d is None:
-            return f"{'':>20s} | {'':>15s}"
-        return f"{d['number']:20d} | {d['JO']:9.4f} %      "
-
-    for i in range(1, not_):
-        r1 = ot1.get(i)
-        r2 = ot2.get(i)
-        d12 = compute_obs_diff(r1, r2) if r1 and r2 else None
-        out.write(f" OBS_DIFF | {i:6d} | {fmt_pair(r1)} | {fmt_pair(r2)} | {fmt_diff(d12)}\n")
-
-    if jog1 or jog2:
-        d12 = compute_obs_diff(jog1, jog2) if jog1 and jog2 else None
-        out.write(f" OBS_DIFF | {'GLOBAL':>6s} | {fmt_pair(jog1)} | {fmt_pair(jog2)} | "
-                   f"{fmt_diff(d12)}\n")
-
-        if d12 and d12["JO"] > 100 * jo_max_diff:
-            out.write("\n")
-            warn = (f"WARNING : GLOBAL JO DIFFERENCE IS OUTSIDE ALLOWED LIMIT OF "
-                    f"{100 * jo_max_diff:12.6f} %\n")
-            out.write(warn * 5)
-
-    out.write("\n")
+def obs_verdict(obs_ref: dict, obs_exp: dict, jo_rtol: float):
+    jr, je = obs_ref["jog"], obs_exp["jog"]
+    if not jr or not je:
+        return None
+    denom = abs(jr["jo"]) or 1.0
+    rel = abs(je["jo"] - jr["jo"]) / denom
+    return {"ref": jr, "exp": je, "rel": rel, "flagged": rel > jo_rtol}
 
 
 # --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="diff_NODE",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=__doc__)
+    p.add_argument("ref", help="reference NODE file")
+    p.add_argument("exp", help="experiment NODE file")
+
+    g = p.add_argument_group("selection")
+    g.add_argument("--preset", choices=sorted(PRESETS), help="field-set preset")
+    g.add_argument("--spnorms", default=None,
+                   help=f"spectral norm fields (default: {DEFAULT_SPNORMS}); "
+                        f"empty string = all spectral fields found")
+    g.add_argument("--gpnorms", default="",
+                   help="gridpoint norm fields to also compare; '*' = all, "
+                        "'' = none (default)")
+    g.add_argument("--levels", action="store_true",
+                   help="also compare per-level spectral norms (default: AVE row only)")
+    g.add_argument("--max-nstep", type=int, default=None,
+                   help="only compare forecast steps with nstep <= N")
+    g.add_argument("--fields-from", metavar="FILE",
+                   help="file with extra field names, one per line; "
+                        "'sp:NAME' / 'gp:NAME' prefixes accepted (default sp:)")
+
+    g = p.add_argument_group("tolerance")
+    g.add_argument("--rtol", type=float, default=1e-6, help="relative tolerance (default 1e-6)")
+    g.add_argument("--atol", type=float, default=0.0, help="absolute tolerance floor (default 0)")
+    g.add_argument("--atol-frac", type=float, default=1e-9,
+                   help="per-field absolute floor as a fraction of that field's "
+                        "peak |ref| value (default 1e-9)")
+    g.add_argument("--jo-rtol", type=float, default=0.03,
+                   help="relative tolerance for global observation Jo (default 0.03)")
+
+    g = p.add_argument_group("output")
+    g.add_argument("--full", "-v", action="store_true",
+                   help="one row per compared value")
+    g.add_argument("--flagged-only", action="store_true",
+                   help="with --full, print only rows that exceed tolerance")
+    g.add_argument("--by-step", action="store_true", help="one row per (field, step)")
+    g.add_argument("--json", action="store_true", help="machine-readable summary on stdout")
+    g.add_argument("--quiet", "-q", action="store_true", help="only the verdict line")
+    return p
+
+
+def resolve_fields(args):
+    if args.preset:
+        pre = PRESETS[args.preset]
+        sp_raw = pre["spnorms"] if args.spnorms is None else args.spnorms
+        gp_raw = args.gpnorms or pre["gpnorms"]
+    else:
+        sp_raw = DEFAULT_SPNORMS if args.spnorms is None else args.spnorms
+        gp_raw = args.gpnorms
+
+    spnorms = {s.strip() for s in sp_raw.split(",") if s.strip()}
+    if gp_raw.strip() == "*":
+        gpnorms: object = "*"
+    else:
+        gpnorms = {s.strip() for s in gp_raw.split(",") if s.strip()}
+
+    if args.fields_from:
+        with open(args.fields_from) as fh:
+            for raw in fh:
+                s = raw.split("#", 1)[0].strip()
+                if not s:
+                    continue
+                if s.startswith("gp:"):
+                    if gpnorms != "*":
+                        gpnorms.add(s[3:].strip())
+                else:
+                    spnorms.add(s.removeprefix("sp:").strip())
+    return spnorms, gpnorms
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="diffnode.py",
-        description="Compare two NODE.* forecast log files (norms + observation Jo diffs).")
-    parser.add_argument("file1", help="reference NODE file")
-    parser.add_argument("file2", help="experiment NODE file")
-    parser.add_argument("--spnorms", default="VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY",
-                         help="comma-separated spectral norm field names")
-    parser.add_argument("--gpnorms", default="U VELOCITY,U VELOCITY,SURFACE PRESSURE,TEMPERATURE",
-                         help='comma-separated gridpoint norm field names ("*" = any)')
-    parser.add_argument("--norm-max-diff", type=float, default=0.05,
-                         help="relative-diff threshold for norms (default 0.05 = 5%%)")
-    parser.add_argument("--jo-max-diff", type=float, default=0.03,
-                         help="relative-diff threshold for global Jo (default 0.03 = 3%%)")
-    args = parser.parse_args(argv)
+    args = build_parser().parse_args(argv)
+    spnorms, gpnorms = resolve_fields(args)
 
-    spnorms = [s for s in args.spnorms.split(",") if s != ""]
-    gpnorms = [s for s in args.gpnorms.split(",") if s != ""]
+    recs_ref = parse_node(args.ref, spnorms, gpnorms, args.levels)
+    recs_exp = parse_node(args.exp, spnorms, gpnorms, args.levels)
 
-    tag1, tag2 = "NORMDIFF", "NORMSTAT"
+    if not recs_ref and not recs_exp:
+        print("diff_NODE: no SPECTRAL NORMS / GPNORM blocks found in either file "
+              "(check --spnorms/--gpnorms).", file=sys.stderr)
+        return 2
 
-    fx1 = xave(args.file1, gpnorms, spnorms)
-    fx2 = xave(args.file2, gpnorms, spnorms)
+    cmp = compare(recs_ref, recs_exp, rtol=args.rtol, atol=args.atol,
+                  atol_frac=args.atol_frac, max_nstep=args.max_nstep)
 
-    res = compare_norms(fx1, fx2, tag1, args.norm_max_diff)
-    print_norms_report(res, tag1, tag2, args.norm_max_diff)
+    obs_ref = parse_obs(args.ref)
+    obs_exp = parse_obs(args.exp)
+    ov = obs_verdict(obs_ref, obs_exp, args.jo_rtol)
 
-    ot1 = xobstype(args.file1)
-    ot2 = xobstype(args.file2)
-    jog1 = xjog(args.file1)
-    jog2 = xjog(args.file2)
+    ok = cmp.ok and not (ov and ov["flagged"])
+    max_abs = max((p.abs_diff for p in cmp.pairs), default=0.0)
+    max_rel = max((p.rel_diff for p in cmp.pairs if p.rel_diff != math.inf), default=0.0)
 
-    print_obs_report(ot1, ot2, jog1, jog2, args.jo_max_diff)
+    if args.json:
+        payload = {
+            "status": "pass" if ok else "fail",
+            "ref": args.ref, "exp": args.exp,
+            "rtol": args.rtol, "atol": args.atol, "atol_frac": args.atol_frac,
+            "n_compared": len(cmp.pairs),
+            "n_flagged": cmp.n_flagged,
+            "max_abs_diff": max_abs,
+            "max_rel_diff": max_rel,
+            "structural_mismatch": cmp.structural_mismatch,
+            "ref_only": len(cmp.ref_only),
+            "exp_only": len(cmp.exp_only),
+            "fields": [
+                {"field": f.field, "kind": f.kind, "n": f.n, "n_flagged": f.n_flagged,
+                 "max_abs_diff": f.max_abs, "max_rel_diff": (None if f.max_rel == math.inf else f.max_rel)}
+                for f in sorted(cmp.fields.values(), key=lambda f: (f.kind, f.field))
+            ],
+            "obs_jo": (None if not ov else
+                       {"ref": ov["ref"]["jo"], "exp": ov["exp"]["jo"],
+                        "rel": ov["rel"], "flagged": ov["flagged"]}),
+        }
+        print(json.dumps(payload, indent=2))
+        return 0 if ok else 1
 
-    return 0
+    if not args.quiet:
+        if args.full:
+            print_full(cmp, sys.stdout, args.flagged_only)
+        elif args.by_step:
+            print_by_step(cmp, sys.stdout)
+        else:
+            print_field_table(cmp, sys.stdout)
+        print()
+
+        if cmp.structural_mismatch:
+            print(f"STRUCTURAL MISMATCH: {len(cmp.ref_only)} value(s) only in ref, "
+                  f"{len(cmp.exp_only)} only in exp "
+                  f"(runs produced different norm blocks -- crashed / diverged early?)")
+            for key, where in (cmp.ref_only[:5] + cmp.exp_only[:5]):
+                print(f"    {key[1]:<22} {where}")
+            print()
+
+        if ov:
+            tag = "  *" if ov["flagged"] else ""
+            print(f"Global Jo: ref={ov['ref']['jo']:.6e} exp={ov['exp']['jo']:.6e} "
+                  f"rel={ov['rel']:.2e}{tag}")
+            print()
+
+    verdict = "PASS" if ok else "FAIL"
+    print(f"{verdict}: {len(cmp.pairs)} values compared, {cmp.n_flagged} flagged, "
+          f"max|Δ|={max_abs:.2e}, max rel={max_rel:.2e} "
+          f"(rtol={args.rtol:g}, atol_frac={args.atol_frac:g})")
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""diff_netcdf -- compare two netCDF files variable-by-variable.
+
+For each data variable (auto-detected -- everything that isn't a dimension
+coordinate or a *_bnds/*_bounds variable -- or an explicit --vars list),
+reports the max absolute difference, RMS absolute difference, and RMS
+difference relative to the reference field's own RMS. Exits 1 (and prints a
+WARNING line, greppable like diff_NODE's) if any variable's relative RMS
+diff exceeds --rel-max-diff; exits 2 if nothing could be compared at all
+(e.g. no variables in common); exits 0 otherwise.
+
+Usage:
+    diff_netcdf ref.nc exp.nc [--vars zg,wap] [--rel-max-diff 1e-4]
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+import netCDF4
+import numpy as np
+
+
+def pick_vars(ds: netCDF4.Dataset, only: list[str] | None) -> list[str]:
+    if only:
+        return only
+    dims = set(ds.dimensions.keys())
+    out = []
+    for name, var in ds.variables.items():
+        if name in dims:
+            continue
+        if name.endswith("_bnds") or name.endswith("_bounds"):
+            continue
+        if var.ndim == 0:
+            continue
+        out.append(name)
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="diff_netcdf",
+        description="Compare two netCDF files variable-by-variable (max/RMS abs+relative diffs).")
+    parser.add_argument("ref", help="reference .nc file")
+    parser.add_argument("exp", help="experiment .nc file")
+    parser.add_argument("--vars", default="",
+                         help="comma-separated variable names (default: auto-detect data variables)")
+    parser.add_argument("--rel-max-diff", type=float, default=1e-4,
+                         help="relative-RMS-diff threshold (default 1e-4)")
+    args = parser.parse_args(argv)
+
+    only = [v for v in args.vars.split(",") if v] or None
+
+    any_warn = False
+    any_compared = False
+
+    with netCDF4.Dataset(args.ref) as dref, netCDF4.Dataset(args.exp) as dexp:
+        varnames = pick_vars(dref, only)
+
+        print(f" NCDIFF | {'VARIABLE':20s} | {'MAX ABS DIFF':>14s} | {'RMS ABS DIFF':>14s} | {'REL RMS DIFF':>14s}")
+
+        for name in varnames:
+            if name not in dref.variables or name not in dexp.variables:
+                print(f" NCDIFF | {name:20s} | SKIP -- not present in both files")
+                continue
+
+            r = np.ma.filled(dref.variables[name][:].astype("float64"), np.nan)
+            e = np.ma.filled(dexp.variables[name][:].astype("float64"), np.nan)
+
+            if r.shape != e.shape:
+                print(f" NCDIFF | {name:20s} | SKIP -- shape mismatch {r.shape} vs {e.shape}")
+                continue
+
+            mask = np.isfinite(r) & np.isfinite(e)
+            if not mask.any():
+                print(f" NCDIFF | {name:20s} | SKIP -- no finite values in common")
+                continue
+
+            diff = e[mask] - r[mask]
+            abs_max = float(np.max(np.abs(diff)))
+            rms_abs = float(np.sqrt(np.mean(diff ** 2)))
+            ref_rms = float(np.sqrt(np.mean(r[mask] ** 2)))
+            if ref_rms != 0:
+                rel_rms = rms_abs / ref_rms
+            else:
+                rel_rms = 0.0 if rms_abs == 0 else float("inf")
+
+            flagged = rel_rms > args.rel_max_diff
+            any_warn = any_warn or flagged
+            any_compared = True
+            flag = " *" if flagged else ""
+
+            print(f" NCDIFF | {name:20s} | {abs_max:14.6e} | {rms_abs:14.6e} | {rel_rms:14.6e}{flag}")
+
+        if any_warn:
+            print()
+            print(f"WARNING : SOME NETCDF VARIABLE DIFFERENCES ARE OUTSIDE ALLOWED LIMIT OF {args.rel_max_diff:.2e}")
+
+    if not any_compared:
+        print("Nothing was actually compared (no common variables / all skipped).", file=sys.stderr)
+        return 2
+    return 1 if any_warn else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
