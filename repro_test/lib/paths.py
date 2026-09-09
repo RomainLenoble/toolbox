@@ -17,6 +17,26 @@ import re
 from pathlib import Path
 
 
+def netcdf_glob(entry: str) -> str:
+    """The iox_keep/ filename pattern for one netcdf_vars entry.
+
+    - explicit glob (contains * ? [)      -> used as-is
+    - filename fragment (contains a '.')  -> "*<entry>"   e.g. _ps_202001-202002.nc
+    - bare field tag                      -> "*_arpsfx_<tag>_*.nc"  e.g. hour_zg
+    """
+    if re.search(r"[*?\[]", entry):
+        return entry
+    if "." in entry:
+        return f"*{entry}"
+    return f"*_arpsfx_{entry}_*.nc"
+
+
+def netcdf_ref_name(entry: str) -> str:
+    """Stored-reference filename under references/<case>/netcdf/ for an entry."""
+    name = entry.lstrip("*")
+    return name if name.endswith(".nc") else f"{name}.nc"
+
+
 class RunPaths:
     def __init__(self, here: Path, case_name: str) -> None:
         self.here = Path(here)
@@ -54,10 +74,12 @@ class RunPaths:
     def fa_grib(self, run_id: str, fname: str) -> Path:
         return self._run_src(run_id) / "rundir" / fname
 
-    def netcdf(self, run_id: str, tag: str) -> Path:
-        """Newest XIOS file matching the tag; if none exists yet, the glob
-        pattern itself (so the caller can report a clean 'not found')."""
+    def netcdf(self, run_id: str, entry: str) -> Path:
+        """Newest XIOS file matching a netcdf_vars entry; if none exists yet,
+        the glob pattern itself (so the caller can report a clean 'not
+        found'). See netcdf_glob() for how an entry is interpreted."""
         ini = re.sub(r"\D", "", self._param_var(run_id, "INIDATE"))
         d = self._run_src(run_id) / "iox_keep" / ini
-        matches = sorted(glob.glob(str(d / f"*_arpsfx_{tag}_*.nc")))
-        return Path(matches[-1]) if matches else d / f"*_arpsfx_{tag}_*.nc"
+        pat = netcdf_glob(entry)
+        matches = sorted(glob.glob(str(d / pat)))
+        return Path(matches[-1]) if matches else d / pat

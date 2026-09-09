@@ -77,14 +77,22 @@ def prepare_and_submit(rp: RunPaths, launch_src: Path, run_id: str,
     log = result_dir / "launch.log"
     print(f">>> [{run_id}] launching from {rdir} (EXPID={run_id}); param_Eclis output -> {log}")
 
-    # TODO: the actual launch is still stubbed. Something like:
     import subprocess
+
+    # param_Eclis is interactive (prompts for confirmation on stdin) and long
+    # running; launch it detached, feeding a stream of "y" via `yes`, with its
+    # combined output going to launch.log. We don't wait here -- wait_for_node()
+    # polls NODE.001_01 as the synchronization point.
+    yes = subprocess.Popen(["yes"], stdout=subprocess.PIPE)
     with open(log, "w") as fh:
-        subprocess.run(["yes | ./param_Eclis > eclisout.log 2> ecliserr.log &"], cwd=rdir,
-                        stdout=fh, stderr=subprocess.STDOUT,
-                        input="y\n" * 100, text=True, check=True)
-    del extra_launch_args  # unused until the launch above is wired up
-    print(f">>> [{run_id}] submitted.")
+        proc = subprocess.Popen(
+            ["./param_Eclis"], cwd=rdir,
+            stdin=yes.stdout, stdout=fh, stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    yes.stdout.close()  # let `yes` receive SIGPIPE once param_Eclis exits
+    del extra_launch_args  # unused until extra launch args are wired up
+    print(f">>> [{run_id}] submitted (pid {proc.pid}).")
 
 
 def wait_for_node(rp: RunPaths, run_id: str, poll: float, timeout: float) -> None:

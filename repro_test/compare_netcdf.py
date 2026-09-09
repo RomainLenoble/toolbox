@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.common import HERE, read_list, run_diff, split_ddash, timestamp
-from lib.paths import RunPaths
+from lib.paths import RunPaths, netcdf_ref_name
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -54,19 +54,21 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     rp = RunPaths(HERE, case_name)
-    tags = read_list(vars_file)
+    entries = read_list(vars_file)
 
     # in --against (repro) mode, demand bit-exact agreement unless overridden
     diff_defaults = ["--rel-max-diff", "0"] if args.against else []
     out_dir = HERE / "results" / run_id / "netcdf"
 
     failed = missing = 0
-    for tag in tags:
+    for entry in entries:
+        tag = entry  # label / report name
         if against_run_id:
-            ref, ref_what = rp.netcdf(against_run_id, tag), f"run {against_run_id}"
+            ref, ref_what = rp.netcdf(against_run_id, entry), f"run {against_run_id}"
         else:
-            ref, ref_what = HERE / "references" / case_name / "netcdf" / f"{tag}.nc", "reference"
-        exp = rp.netcdf(run_id, tag)
+            ref = HERE / "references" / case_name / "netcdf" / netcdf_ref_name(entry)
+            ref_what = "reference"
+        exp = rp.netcdf(run_id, entry)
 
         if not ref.is_file():
             print(f"??? [{label} / {tag}]  -- no {ref_what} at {ref}")
@@ -77,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             missing = 1
             continue
 
-        report = out_dir / f"diff_{tag}_{timestamp()}.txt"
+        report = out_dir / f"diff_{tag.replace('/', '_')}_{timestamp()}.txt"
         rc = run_diff("diff_netcdf", [str(ref), str(exp), *diff_defaults, *diff_opts], report)
         if rc == 0:
             print(f"PASS  [{label} / {tag}]")
@@ -86,11 +88,11 @@ def main(argv: list[str] | None = None) -> int:
             failed = 1
         print()
 
-    if not tags:
+    if not entries:
         print(f"Nothing was compared -- is {vars_file} empty?")
     if failed:
         return 1
-    if missing or not tags:
+    if missing or not entries:
         return 2
     return 0
 

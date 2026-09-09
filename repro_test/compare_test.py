@@ -94,7 +94,8 @@ def main(argv: list[str] | None = None) -> int:
 
     report = HERE / "results" / run_id / f"diff_{timestamp()}.txt"
 
-    any_fail = any_error = False
+    # per-section outcome: 0 ok / 1 out of tolerance / 2 could not compare / None not run
+    section: dict[str, int] = {}
 
     # --- NODE.001_01 -----------------------------------------------------
     rc = run_diff("diff_NODE", [str(ref), str(result), *node_args, *diff_node_opts], report)
@@ -102,10 +103,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"PASS  [{label} / NODE]")
     elif rc == 1:
         print(f"FAIL  [{label} / NODE]  -- see {report}")
-        any_fail = True
     else:
         print(f"???   [{label} / NODE]  -- diff_NODE could not compare (rc={rc}, see {report})")
-        any_error = True
+    section["NODE"] = rc if rc in (0, 1) else 2
 
     # forwarded to the netCDF / FA-GRIB sub-comparisons
     sub_args: list[str] = []
@@ -114,27 +114,30 @@ def main(argv: list[str] | None = None) -> int:
     if args.against:
         sub_args += ["--against", args.against]
 
-    def tally(rc: int) -> None:
-        nonlocal any_fail, any_error
-        if rc == 1:
-            any_fail = True
-        elif rc != 0:
-            any_error = True
-
     if (HERE / "cases" / case_name / "netcdf_vars").is_file():
         print()
-        tally(compare_netcdf.main([case_name, *sub_args]))
+        rc = compare_netcdf.main([case_name, *sub_args])
+        section["netCDF"] = rc if rc in (0, 1) else 2
 
     if (HERE / "cases" / case_name / "fa_grib_files").is_file():
         print()
-        tally(compare_fa_grib.main([case_name, *sub_args]))
+        rc = compare_fa_grib.main([case_name, *sub_args])
+        section["FA/GRIB"] = rc if rc in (0, 1) else 2
+
+    any_fail = 1 in section.values()
+    any_error = 2 in section.values()
 
     print()
+    word = {0: "ok", 1: "FAIL (out of tolerance)", 2: "??? (could not compare)"}
+    print(f"--- [{label}] ---")
+    for name, rc in section.items():
+        print(f"    {name:8s}: {word[rc]}")
+
     if any_fail:
-        print(f"FAIL  [{label}]  -- one or more comparisons out of tolerance")
+        print(f"FAIL  [{label}]  -- {', '.join(n for n, r in section.items() if r == 1)} out of tolerance")
         return 1
     if any_error:
-        print(f"???   [{label}]  -- one or more comparisons could not run")
+        print(f"???   [{label}]  -- {', '.join(n for n, r in section.items() if r == 2)} could not run")
         return 2
     print(f"PASS  [{label}]  -- all comparisons agree")
     return 0

@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.common import HERE, read_list
-from lib.paths import RunPaths
+from lib.paths import RunPaths, netcdf_ref_name
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,14 +48,15 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copy(src_node, ref_dir / "NODE.001_01")
     print(f">>> Saved reference: {ref_dir / 'NODE.001_01'}  (from {src_node})")
 
-    for tag in read_list(HERE / "cases" / case_name / "netcdf_vars"):
+    for entry in read_list(HERE / "cases" / case_name / "netcdf_vars"):
         (ref_dir / "netcdf").mkdir(parents=True, exist_ok=True)
-        src = rp.netcdf(run_id, tag)
+        src = rp.netcdf(run_id, entry)
+        dst = ref_dir / "netcdf" / netcdf_ref_name(entry)
         if src.is_file():
-            shutil.copy(src, ref_dir / "netcdf" / f"{tag}.nc")
-            print(f">>> Saved reference: {ref_dir / 'netcdf' / (tag + '.nc')}  (from {src})")
+            shutil.copy(src, dst)
+            print(f">>> Saved reference: {dst}  (from {src})")
         else:
-            print(f"Warning: no run output for '{tag}' ({src}) -- skipped.", file=sys.stderr)
+            print(f"Warning: no run output for '{entry}' ({src}) -- skipped.", file=sys.stderr)
 
     for fname in read_list(HERE / "cases" / case_name / "fa_grib_files"):
         (ref_dir / "fa_grib").mkdir(parents=True, exist_ok=True)
