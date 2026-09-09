@@ -1,2 +1,5 @@
 */__pycache__/
 /tmp/*
+repro_test/lib/__pycache__/__init__.cpython-312.pyc
+repro_test/lib/__pycache__/common.cpython-312.pyc
+*.pyc
