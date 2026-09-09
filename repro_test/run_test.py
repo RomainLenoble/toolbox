@@ -78,11 +78,11 @@ def prepare_and_submit(rp: RunPaths, launch_src: Path, run_id: str,
     print(f">>> [{run_id}] launching from {rdir} (EXPID={run_id}); param_Eclis output -> {log}")
 
     # TODO: the actual launch is still stubbed. Something like:
-    #   import subprocess
-    #   with open(log, "w") as fh:
-    #       subprocess.run(["./param_Eclis", *extra_launch_args], cwd=rdir,
-    #                      stdout=fh, stderr=subprocess.STDOUT,
-    #                      input="y\n" * 100, text=True, check=True)
+    import subprocess
+    with open(log, "w") as fh:
+        subprocess.run(["yes | ./param_Eclis > eclisout.log 2> ecliserr.log &"], cwd=rdir,
+                        stdout=fh, stderr=subprocess.STDOUT,
+                        input="y\n" * 100, text=True, check=True)
     del extra_launch_args  # unused until the launch above is wired up
     print(f">>> [{run_id}] submitted.")
 
