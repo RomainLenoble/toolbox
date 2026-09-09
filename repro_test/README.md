@@ -25,7 +25,7 @@ repro_test/
 │   ├── NODE.001_01               # the log this case is checked against
 │   ├── netcdf/<tag>.nc           # netCDF fields this case is checked against
 │   └── fa_grib/<filename>       # FA/GRIB files this case is checked against
-├── results/<name>/               # gitignored: diff reports + launch.log only (outputs are NOT copied here)
+├── results/<run_id>/vs-*_<ts>/    # gitignored: per-compare detail files (SUMMARY.txt, NODE.txt, ...)
 └── .runs/<name>/                 # gitignored: scratch working dir used to launch (see run_test.py)
 ```
 
@@ -137,13 +137,29 @@ Standalone, against an already-finished pair:
 ```
 
 Always runs `bin/diff_NODE` (the run's live `NODE.001_01` vs the
-reference), saving its report to `results/<name>/diff_<timestamp>.txt`.
-Then, when the case
-has a `cases/<name>/netcdf_vars` and/or `cases/<name>/fa_grib_files` list,
-it also runs `compare_netcdf.py` / `compare_fa_grib.py` for that case (with
-their defaults). Overall exit code: `0` → `PASS` (everything within
-tolerance), `1` → `FAIL` (some comparison out of tolerance / structural
-mismatch), anything else → `???` (some comparison couldn't run).
+reference); then, when the case has a `cases/<name>/netcdf_vars` and/or
+`cases/<name>/fa_grib_files` list, it also runs `compare_netcdf.py` /
+`compare_fa_grib.py`. Overall exit code: `0` → `PASS`, `1` → `FAIL` (out of
+tolerance / structural mismatch), `2` → `???` (some comparison couldn't
+run — missing file, nothing to compare).
+
+**Output.** The terminal shows one `PASS`/`FAIL`/`???` line per thing, then
+a short per-section breakdown; on a failure the offending rows (flagged
+values, `WARNING`, structural mismatch) are echoed inline. `-v` / `--verbose`
+streams the full diff tables too. Every invocation writes one directory of
+detail files:
+
+```
+results/<run_id>/vs-reference_<ts>/        # normal run
+results/<run_id>/vs-<against>_<ts>/        # --against / --repro
+    SUMMARY.txt        verdict + section breakdown
+    NODE.txt           full diff_NODE report
+    netcdf/<entry>.txt
+    fa_grib/<file>.txt
+```
+
+So a `--repro` run leaves two clearly-named dirs side by side:
+`vs-<tag>__rep_<ts>/` (the bit-repro check) and `vs-reference_<ts>/`.
 
 Extra flags after `--` go to `diff_NODE` only, e.g.:
 

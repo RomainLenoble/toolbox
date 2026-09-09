@@ -8,20 +8,27 @@ cases/<name>/netcdf_vars and/or cases/<name>/fa_grib_files list -- its
 netCDF and FA/GRIB outputs (delegating to compare_netcdf.py /
 compare_fa_grib.py).
 
-The run's outputs are read *in place* from where the job wrote them (see
-lib/paths.py) -- nothing is copied. Only the diff reports land under
-results/<run_id>/. Run this on a host that can see the run tree (or set
-$REPRO_RUN_BASE to a mount of it).
+Run outputs are read *in place* from where the job wrote them (see
+lib/paths.py) -- nothing is copied. One directory of detail files is
+written per invocation:
 
-Usage: compare_test.py <case_name> [--variant <tag>] [--against <tag>] [run_NODE_path] [-- diff_NODE options]
+    results/<run_id>/vs-reference_<ts>/          (normal)
+    results/<run_id>/vs-<against>_<ts>/          (--against / --repro)
+        SUMMARY.txt        verdict + which detail file is which
+        NODE.txt           full diff_NODE report
+        netcdf/<entry>.txt
+        fa_grib/<file>.txt
 
-    --variant <tag>   which run's outputs to check (run_id "<case>__<tag>";
-                       omitted = "<case>").
+The terminal shows one PASS/FAIL/??? line per thing plus a short breakdown;
+use -v / --verbose to also stream the full diff tables.
+
+Usage: compare_test.py <case_name> [--variant <tag>] [--against <tag>] [-v] [run_NODE_path] [-- diff_NODE options]
+
+    --variant <tag>   which run's outputs to check (run_id "<case>__<tag>").
     --against <tag2>  compare against run "<case>__<tag2>" instead of the
-                       stored reference, and demand *bit-exact* agreement
+                       stored reference, demanding *bit-exact* agreement
                        (diff_NODE --rtol 0 --atol 0 --atol-frac 0 --gpnorms '*',
-                       diff_netcdf/diff_fa_grib --rel-max-diff 0). Use to
-                       check a new executable reproduces itself run-to-run.
+                       diff_netcdf/diff_fa_grib --rel-max-diff 0).
                        cases/<name>/node_diff_args is skipped in this mode.
     run_NODE_path     override the run's NODE.001_01 path (default: live).
     after "--"        extra options for diff_NODE only.
@@ -39,8 +46,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import compare_fa_grib
 import compare_netcdf
-from lib.common import HERE, read_diff_args, run_diff, split_ddash, timestamp
+from lib.common import HERE, make_label, read_diff_args, report_dir, run_diff, split_ddash
 from lib.paths import RunPaths
+
+_WORD = {0: "ok", 1: "FAIL (out of tolerance)", 2: "??? (could not compare)"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -52,95 +61,86 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("case_name")
     p.add_argument("--variant", default="")
     p.add_argument("--against", default="")
+    p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument("run_node_path", nargs="?", default="")
     args = p.parse_args(left)
 
     case_name = args.case_name
     run_id = f"{case_name}__{args.variant}" if args.variant else case_name
-    label = f"{case_name} (variant: {args.variant})" if args.variant else case_name
-
-    against_run_id = ""
-    if args.against:
-        against_run_id = f"{case_name}__{args.against}"
-        label = f"{label}  [repro: vs {args.against}]"
+    label = make_label(case_name, args.variant, args.against)
+    against_run_id = f"{case_name}__{args.against}" if args.against else ""
 
     rp = RunPaths(HERE, case_name)
-
     result = Path(args.run_node_path) if args.run_node_path else rp.node(run_id)
 
     if against_run_id:
         ref = rp.node(against_run_id)
         if not ref.is_file():
-            print(f"Missing run NODE.001_01 for --against: {ref}", file=sys.stderr)
-            return 1
+            print(f"???   [{label}]  -- no --against run NODE.001_01 at {ref}")
+            return 2
     else:
         ref = HERE / "references" / case_name / "NODE.001_01"
         if not ref.is_file():
-            print(f"Missing reference log: {ref}", file=sys.stderr)
-            return 1
+            print(f"???   [{label}]  -- no reference log at {ref}")
+            return 2
     if not result.is_file():
-        print(f"Missing run NODE.001_01: {result}", file=sys.stderr)
-        print("(is the job finished? are you on the right host? or pass its path as an argument)",
-              file=sys.stderr)
-        return 1
+        print(f"???   [{label}]  -- no run NODE.001_01 at {result}")
+        print("      (is the job finished? are you on the right host? or pass its path as an arg)")
+        return 2
 
-    # diff_NODE args:
-    #   reference mode -> per-case cases/<case>/node_diff_args (tuned tolerances)
-    #   --against mode -> bit-exact, compare everything; node_diff_args skipped
+    # diff_NODE args: reference mode -> per-case node_diff_args (tuned);
+    #                 --against mode -> bit-exact, compare every field.
     if args.against:
         node_args = ["--rtol", "0", "--atol", "0", "--atol-frac", "0", "--gpnorms", "*"]
     else:
         node_args = read_diff_args(HERE / "cases" / case_name / "node_diff_args")
 
-    report = HERE / "results" / run_id / f"diff_{timestamp()}.txt"
+    rdir = report_dir(run_id, args.against)
 
-    # per-section outcome: 0 ok / 1 out of tolerance / 2 could not compare / None not run
-    section: dict[str, int] = {}
+    section: dict[str, int] = {}  # name -> 0 ok / 1 fail / 2 could-not-compare
 
-    # --- NODE.001_01 -----------------------------------------------------
-    rc = run_diff("diff_NODE", [str(ref), str(result), *node_args, *diff_node_opts], report)
-    if rc == 0:
-        print(f"PASS  [{label} / NODE]")
-    elif rc == 1:
-        print(f"FAIL  [{label} / NODE]  -- see {report}")
-    else:
-        print(f"???   [{label} / NODE]  -- diff_NODE could not compare (rc={rc}, see {report})")
+    # --- NODE.001_01 ---------------------------------------------------
+    rc = run_diff("diff_NODE", [str(ref), str(result), *node_args, *diff_node_opts],
+                  rdir / "NODE.txt", verbose=args.verbose)
     section["NODE"] = rc if rc in (0, 1) else 2
+    verdict = {0: "PASS", 1: "FAIL"}.get(rc, "??? ")
+    tail = "" if rc == 0 else f"  -- {rdir / 'NODE.txt'}"
+    print(f"{verdict}  [{label} / NODE]{tail}")
 
-    # forwarded to the netCDF / FA-GRIB sub-comparisons
-    sub_args: list[str] = []
+    # --- netCDF / FA-GRIB (delegated) --------------------------------
+    sub_args = ["--report-dir", str(rdir)]
     if args.variant:
         sub_args += ["--variant", args.variant]
     if args.against:
         sub_args += ["--against", args.against]
+    if args.verbose:
+        sub_args += ["--verbose"]
 
     if (HERE / "cases" / case_name / "netcdf_vars").is_file():
-        print()
         rc = compare_netcdf.main([case_name, *sub_args])
         section["netCDF"] = rc if rc in (0, 1) else 2
 
     if (HERE / "cases" / case_name / "fa_grib_files").is_file():
-        print()
         rc = compare_fa_grib.main([case_name, *sub_args])
         section["FA/GRIB"] = rc if rc in (0, 1) else 2
 
+    # --- verdict + SUMMARY.txt ------------------------------------
     any_fail = 1 in section.values()
     any_error = 2 in section.values()
+    overall = 1 if any_fail else (2 if any_error else 0)
+
+    lines = [f"[{label}]", ""]
+    lines += [f"    {n:8s}: {_WORD[r]}" for n, r in section.items()]
+    lines.append("")
+    lines.append({0: f"PASS  [{label}]  -- all comparisons agree",
+                  1: f"FAIL  [{label}]  -- {', '.join(n for n, r in section.items() if r == 1)} out of tolerance",
+                  2: f"???   [{label}]  -- {', '.join(n for n, r in section.items() if r == 2)} could not run"}[overall])
+    (rdir / "SUMMARY.txt").write_text("\n".join(lines) + "\n")
 
     print()
-    word = {0: "ok", 1: "FAIL (out of tolerance)", 2: "??? (could not compare)"}
-    print(f"--- [{label}] ---")
-    for name, rc in section.items():
-        print(f"    {name:8s}: {word[rc]}")
-
-    if any_fail:
-        print(f"FAIL  [{label}]  -- {', '.join(n for n, r in section.items() if r == 1)} out of tolerance")
-        return 1
-    if any_error:
-        print(f"???   [{label}]  -- {', '.join(n for n, r in section.items() if r == 2)} could not run")
-        return 2
-    print(f"PASS  [{label}]  -- all comparisons agree")
-    return 0
+    print("\n".join(lines))
+    print(f"      detail: {rdir}")
+    return overall
 
 
 if __name__ == "__main__":

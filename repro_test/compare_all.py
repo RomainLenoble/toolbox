@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--variant", default="")
     p.add_argument("--against", default="")
+    p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(left)
 
     common: list[str] = []
@@ -32,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
         common += ["--variant", args.variant]
     if args.against:
         common += ["--against", args.against]
+    if args.verbose:
+        common += ["--verbose"]
 
     failed = skipped = 0
     for case_dir in sorted(d for d in (HERE / "cases").iterdir() if d.is_dir()):

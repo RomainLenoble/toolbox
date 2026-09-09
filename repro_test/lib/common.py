@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -44,22 +45,62 @@ def read_diff_args(path: Path) -> list[str]:
     return shlex.split(text)
 
 
-def run_diff(tool: str, args: list[str], report: Path | None) -> int:
-    """Run bin/<tool>, stream its output to the terminal and (if given) to
-    ``report``. Returns the tool's exit code."""
+# ---------------------------------------------------------------------------
+# labels & report locations
+# ---------------------------------------------------------------------------
+
+def make_label(case_name: str, variant: str, against: str) -> str:
+    """Short human label for terminal lines, e.g.
+    ``NFR25/v7.4.dev vs v7.4.dev__rep`` or just ``NFR25``."""
+    lab = f"{case_name}/{variant}" if variant else case_name
+    return f"{lab} vs {against}" if against else lab
+
+
+def safe_name(s: str) -> str:
+    """Filesystem-safe version of an entry/filename for a report file."""
+    return re.sub(r"[^A-Za-z0-9._+-]", "_", s).strip("_") or "x"
+
+
+def report_dir(run_id: str, against: str) -> Path:
+    """The directory a compare_* run writes its detail files into:
+
+        results/<run_id>/vs-reference_<ts>/        (normal)
+        results/<run_id>/vs-<against>_<ts>/        (--against / --repro)
+    """
+    mode = f"vs-{safe_name(against)}" if against else "vs-reference"
+    d = HERE / "results" / run_id / f"{mode}_{timestamp()}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+# ---------------------------------------------------------------------------
+# running the bin/diff_* tools
+# ---------------------------------------------------------------------------
+
+# lines worth echoing to the terminal from an otherwise file-only diff report
+_SALIENT = re.compile(
+    r"WARNING|MISMATCH|ERROR|<-- FAIL|\bonly in (ref|exp)\b|^\s*(PASS|FAIL):|\*\s*$"
+)
+
+
+def run_diff(tool: str, args: list[str], report: Path, *, verbose: bool = False) -> int:
+    """Run bin/<tool>, capture ALL its output to ``report``. Returns the exit
+    code. Terminal output: everything if ``verbose``; otherwise nothing on a
+    clean pass, and only the salient lines (warnings / flagged rows / verdict)
+    when the tool reports a problem."""
     cmd = [sys.executable, str(HERE / "bin" / tool), *args]
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
-    proc = subprocess.Popen(
+    proc = subprocess.run(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
     )
-    captured: list[str] = []
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        sys.stdout.write(line)
-        sys.stdout.flush()
-        captured.append(line)
-    rc = proc.wait()
-    if report is not None:
-        report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text("".join(captured))
-    return rc
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(proc.stdout)
+
+    if verbose:
+        sys.stdout.write(proc.stdout)
+    elif proc.returncode != 0:
+        for line in proc.stdout.splitlines():
+            if _SALIENT.search(line):
+                print(f"      | {line.rstrip()}")
+
+    return proc.returncode

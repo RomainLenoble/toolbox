@@ -3,23 +3,22 @@
 their stored references, field-by-field, via bin/diff_fa_grib (epygram) --
 or, with --against, against another run.
 
-Usage: compare_fa_grib.py <case_name> [--variant <tag>] [--against <tag>] [-- diff_fa_grib options]
+Usage: compare_fa_grib.py <case_name> [--variant <tag>] [--against <tag>] [-v] [-- diff_fa_grib options]
 
 Files to compare come from cases/<case_name>/fa_grib_files (one output
-filename per line, "#" comments allowed), e.g.
-    ICMSHNFR2+0001
-    PFNFR2000+0003.grib
-Each file is read in place from the run's rundir (same dir as NODE.001_01,
-see lib/paths.py).
+filename per line, "#" comments ok). Each file is read in place from the
+run's rundir (same dir as NODE.001_01, see lib/paths.py); diff_fa_grib
+iterates over every field inside it.
 
     default          -> diff against references/<case_name>/fa_grib/<filename>
     --against <tag2> -> diff against run "<case_name>__<tag2>" (bit-exact:
                          --rel-max-diff 0), for a reproducibility check
 
-Unlike netcdf_vars (one field per file), each entry here is a whole FA/GRIB
-file and diff_fa_grib iterates over every field inside it.
+Terminal output is one PASS/FAIL/??? line per file; the full per-field
+table is written to results/<run_id>/vs-*/fa_grib/<filename>.txt. -v /
+--verbose streams the tables too.
 
-Exit: 1 if any field is out of tolerance, 2 if nothing could be compared,
+Exit: 1 if any file is out of tolerance, 2 if nothing could be compared,
 0 otherwise.
 """
 
@@ -30,7 +29,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from lib.common import HERE, read_list, run_diff, split_ddash, timestamp
+from lib.common import HERE, make_label, read_list, report_dir, run_diff, safe_name, split_ddash
 from lib.paths import RunPaths
 
 
@@ -43,16 +42,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("case_name")
     p.add_argument("--variant", default="")
     p.add_argument("--against", default="")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--report-dir", default="", help=argparse.SUPPRESS)
     args = p.parse_args(left)
 
     case_name = args.case_name
     run_id = f"{case_name}__{args.variant}" if args.variant else case_name
-    label = f"{case_name} (variant: {args.variant})" if args.variant else case_name
-
-    against_run_id = ""
-    if args.against:
-        against_run_id = f"{case_name}__{args.against}"
-        label = f"{label}  [repro: vs {args.against}]"
+    label = make_label(case_name, args.variant, args.against)
+    against_run_id = f"{case_name}__{args.against}" if args.against else ""
 
     files_list = HERE / "cases" / case_name / "fa_grib_files"
     if not files_list.is_file():
@@ -62,35 +59,35 @@ def main(argv: list[str] | None = None) -> int:
 
     rp = RunPaths(HERE, case_name)
     fnames = read_list(files_list)
-
-    diff_defaults = ["--rel-max-diff", "0"] if args.against else []
-    out_dir = HERE / "results" / run_id / "fa_grib"
+    rdir = Path(args.report_dir) if args.report_dir else report_dir(run_id, args.against)
+    diff_defaults = ["--rel-max-diff", "0"] if args.against else []  # bit-exact for repro
 
     failed = missing = 0
     for fname in fnames:
         if against_run_id:
             ref, ref_what = rp.fa_grib(against_run_id, fname), f"run {against_run_id}"
         else:
-            ref, ref_what = HERE / "references" / case_name / "fa_grib" / fname, "reference"
+            ref = HERE / "references" / case_name / "fa_grib" / fname
+            ref_what = "reference"
         exp = rp.fa_grib(run_id, fname)
 
         if not ref.is_file():
-            print(f"???  [{label} / {fname}]  -- no {ref_what} at {ref}")
+            print(f"???   [{label} / {fname}]  -- no {ref_what} at {ref}")
             missing = 1
             continue
         if not exp.is_file():
-            print(f"???  [{label} / {fname}]  -- no run output at {exp} (job finished? right host?)")
+            print(f"???   [{label} / {fname}]  -- no run output at {exp}")
             missing = 1
             continue
 
-        report = out_dir / f"diff_{fname}_{timestamp()}.txt"
-        rc = run_diff("diff_fa_grib", [str(ref), str(exp), *diff_defaults, *diff_opts], report)
+        rep = rdir / "fa_grib" / f"{safe_name(fname)}.txt"
+        rc = run_diff("diff_fa_grib", [str(ref), str(exp), *diff_defaults, *diff_opts],
+                      rep, verbose=args.verbose)
         if rc == 0:
             print(f"PASS  [{label} / {fname}]")
         else:
-            print(f"FAIL  [{label} / {fname}]  -- see {report}")
+            print(f"FAIL  [{label} / {fname}]  -- {rep}")
             failed = 1
-        print()
 
     if not fnames:
         print(f"Nothing was compared -- is {files_list} empty?")

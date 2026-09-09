@@ -137,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
                    metavar="KEY=VALUE")
     p.add_argument("--no-compare", action="store_true")
     p.add_argument("--no-wait", action="store_true")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="stream the full diff tables (default: concise + detail files)")
     p.add_argument("--poll-interval", type=float, default=20)
     p.add_argument("--timeout", type=float, default=7200)
     args = p.parse_args(left)
@@ -185,6 +187,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- compare ----------------------------------------------------
     v_args = ["--variant", args.variant] if args.variant else []
+    if args.verbose:
+        v_args += ["--verbose"]
 
     if args.repro:
         bar = "=" * 70
