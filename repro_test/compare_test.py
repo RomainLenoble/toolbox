@@ -18,11 +18,12 @@ written per invocation:
         NODE.txt           full diff_NODE report
         netcdf/<entry>.txt
         fa_grib/<file>.txt
+        fa_grib/<file>.maps/<field>.png   (exp-ref difference maps, on by default)
 
 The terminal shows one PASS/FAIL/??? line per thing plus a short breakdown;
 use -v / --verbose to also stream the full diff tables.
 
-Usage: compare_test.py <case_name> [--variant <tag>] [--against <tag>] [-v] [run_NODE_path] [-- diff_NODE options]
+Usage: compare_test.py <case_name> [--variant <tag>] [--against <tag>] [-v] [--maps|--no-maps] [run_NODE_path] [-- diff_NODE options]
 
     --variant <tag>   which run's outputs to check (run_id "<case>__<tag>").
     --against <tag2>  compare against run "<case>__<tag2>" instead of the
@@ -30,6 +31,9 @@ Usage: compare_test.py <case_name> [--variant <tag>] [--against <tag>] [-v] [run
                        (diff_NODE --rtol 0 --atol 0 --atol-frac 0 --gpnorms '*',
                        diff_netcdf/diff_fa_grib --rel-max-diff 0).
                        cases/<name>/node_diff_args is skipped in this mode.
+    --no-maps         skip the FA/GRIB difference-map PNGs (written by default
+                       for every flagged field, capped at diff_fa_grib's
+                       --plot-max).
     run_NODE_path     override the run's NODE.001_01 path (default: live).
     after "--"        extra options for diff_NODE only.
 
@@ -62,8 +66,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--variant", default="")
     p.add_argument("--against", default="")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--maps", action="store_true",
+                   help="draw the FA/GRIB exp-ref difference maps (already the default)")
+    p.add_argument("--no-maps", action="store_true",
+                   help="skip the FA/GRIB exp-ref difference maps")
     p.add_argument("run_node_path", nargs="?", default="")
     args = p.parse_args(left)
+    maps = not args.no_maps   # on by default; --maps is accepted but redundant
 
     case_name = args.case_name
     run_id = f"{case_name}__{args.variant}" if args.variant else case_name
@@ -100,12 +109,17 @@ def main(argv: list[str] | None = None) -> int:
     section: dict[str, int] = {}  # name -> 0 ok / 1 fail / 2 could-not-compare
 
     # --- NODE.001_01 ---------------------------------------------------
-    rc = run_diff("diff_NODE", [str(ref), str(result), *node_args, *diff_node_opts],
+    node_argv = [*node_args, *diff_node_opts]
+    if "--growth" in node_argv and "--plot" not in node_argv:
+        node_argv += ["--plot", str(rdir / "NODE_growth.png")]
+    rc = run_diff("diff_NODE", [str(ref), str(result), *node_argv],
                   rdir / "NODE.txt", verbose=args.verbose)
     section["NODE"] = rc if rc in (0, 1) else 2
     verdict = {0: "PASS", 1: "FAIL"}.get(rc, "??? ")
     tail = "" if rc == 0 else f"  -- {rdir / 'NODE.txt'}"
     print(f"{verdict}  [{label} / NODE]{tail}")
+    if (rdir / "NODE_growth.png").exists():
+        print(f"      plot: {rdir / 'NODE_growth.png'}")
 
     # --- netCDF / FA-GRIB (delegated) --------------------------------
     sub_args = ["--report-dir", str(rdir)]
@@ -121,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         section["netCDF"] = rc if rc in (0, 1) else 2
 
     if (HERE / "cases" / case_name / "fa_grib_files").is_file():
-        rc = compare_fa_grib.main([case_name, *sub_args])
+        fa_args = [*sub_args, "--maps"] if maps else sub_args
+        rc = compare_fa_grib.main([case_name, *fa_args])
         section["FA/GRIB"] = rc if rc in (0, 1) else 2
 
     # --- verdict + SUMMARY.txt ------------------------------------

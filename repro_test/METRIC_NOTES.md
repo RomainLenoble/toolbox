@@ -47,6 +47,12 @@ without hand-tuning per field and per forecast length.
 
 ### B1. Early-step agreement + growth-rate check  *(recommended primary)*
 
+**Implemented** as `diff_NODE --growth` (`--plot PATH` for the PNG). Flags
+`d1<dmin` / `cliff` / `steep`; knobs `--growth-dmin` (8), `--growth-cliff`
+(4), `--growth-slope-min` (−8/decade). Uses the AVE-row spectral norm per
+`(field, half)`. Still needs threshold calibration (see below).
+
+
 Track, per field, the **digits of agreement**
 `d(n) = -log10(rel_diff)` as a function of forecast step `n`, using
 `rel_diff = |exp-ref| / (|ref| + floor_field)`.

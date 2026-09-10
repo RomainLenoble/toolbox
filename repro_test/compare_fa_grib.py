@@ -18,6 +18,10 @@ Terminal output is one PASS/FAIL/??? line per file; the full per-field
 table is written to results/<run_id>/vs-*/fa_grib/<filename>.txt. -v /
 --verbose streams the tables too.
 
+--maps writes, next to that report, a difference-map PNG for every field
+that is out of tolerance (results/<run_id>/vs-*/fa_grib/<filename>.maps/).
+Pass diff_fa_grib's own --plot-when / --plot-layout after "--" to tune it.
+
 Exit: 1 if any file is out of tolerance, 2 if nothing could be compared,
 0 otherwise.
 """
@@ -43,8 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--variant", default="")
     p.add_argument("--against", default="")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--maps", action="store_true",
+                   help="also write exp-ref difference-map PNGs for flagged fields")
     p.add_argument("--report-dir", default="", help=argparse.SUPPRESS)
     args = p.parse_args(left)
+
+    plot_opts_given = any(o.startswith("--plot") for o in diff_opts)
 
     case_name = args.case_name
     run_id = f"{case_name}__{args.variant}" if args.variant else case_name
@@ -81,13 +89,20 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         rep = rdir / "fa_grib" / f"{safe_name(fname)}.txt"
-        rc = run_diff("diff_fa_grib", [str(ref), str(exp), *diff_defaults, *diff_opts],
+        map_args: list[str] = []
+        maps_dir = rdir / "fa_grib" / f"{safe_name(fname)}.maps"
+        if (args.maps or plot_opts_given) and "--plot-dir" not in diff_opts:
+            map_args = ["--plot-dir", str(maps_dir)]
+        rc = run_diff("diff_fa_grib",
+                      [str(ref), str(exp), *diff_defaults, *map_args, *diff_opts],
                       rep, verbose=args.verbose)
         if rc == 0:
             print(f"PASS  [{label} / {fname}]")
         else:
             print(f"FAIL  [{label} / {fname}]  -- {rep}")
             failed = 1
+        if maps_dir.is_dir() and any(maps_dir.iterdir()):
+            print(f"      maps: {maps_dir}  ({sum(1 for _ in maps_dir.glob('*.png'))})")
 
     if not fnames:
         print(f"Nothing was compared -- is {files_list} empty?")

@@ -26,6 +26,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--variant", default="")
     p.add_argument("--against", default="")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--maps", action="store_true",
+                   help="draw the FA/GRIB difference maps (already the default)")
+    p.add_argument("--no-maps", action="store_true",
+                   help="skip the FA/GRIB difference maps")
     args = p.parse_args(left)
 
     common: list[str] = []
@@ -35,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
         common += ["--against", args.against]
     if args.verbose:
         common += ["--verbose"]
+    if args.no_maps:
+        common += ["--no-maps"]
 
     failed = skipped = 0
     for case_dir in sorted(d for d in (HERE / "cases").iterdir() if d.is_dir()):

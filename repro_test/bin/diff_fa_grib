@@ -11,23 +11,26 @@ Exits 1 (and prints a WARNING line, greppable like diff_NODE / diff_netcdf)
 if any field's relative RMS diff exceeds --rel-max-diff; exits 2 if nothing
 could be compared at all; exits 0 otherwise.
 
+--plot-dir DIR writes, for each field that differs (or every field, with
+--plot-when all), a PNG of the exp-ref difference map -- one map by default
+(--plot-layout diff), or a ref | exp | exp-ref triptych with
+--plot-layout panels. Needs matplotlib; nicer maps if cartopy is present.
+
 Usage:
     diff_fa_grib ref.fa exp.fa [--fields SURFTEMPERATURE,S001WIND.U.PHYS]
     diff_fa_grib ref.grib exp.grib [--rel-max-diff 1e-4]
+    diff_fa_grib a b --plot-dir maps/            # difference maps of flagged fields
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+from pathlib import Path
 
 import numpy as np
-
-try:
-    import epygram
-except ImportError as exc:  # pragma: no cover
-    print(f"diff_fa_grib: cannot import epygram ({exc})", file=sys.stderr)
-    sys.exit(2)
+import epygram
 
 
 def fid_key(fid) -> str:
@@ -49,6 +52,98 @@ def as_gridpoint_array(field) -> np.ndarray:
     return np.ma.filled(np.ma.asarray(data).astype("float64"), np.nan)
 
 
+# --------------------------------------------------------------------------
+# Difference maps
+# --------------------------------------------------------------------------
+
+def _safe(name: str) -> str:
+    return (re.sub(r"[^A-Za-z0-9._+-]", "_", name).strip("_") or "field")[:120]
+
+
+def _robust_limit(a: np.ndarray) -> float:
+    """Symmetric colour limit for a difference field: the 99.5th percentile
+    of |Δ|, so a few spike cells don't wash the pattern out."""
+    a = np.abs(a[np.isfinite(a)])
+    if a.size == 0:
+        return 1.0
+    lim = float(np.nanpercentile(a, 90))
+    return lim if lim > 0 else (float(a.max()) or 1.0)
+
+
+def plot_field_diff(fref, r: np.ndarray, e: np.ndarray, label: str,
+                    stats: tuple[float, float, float], path: Path, layout: str) -> bool:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # noqa: BLE001
+        print(f" FGDIFF | matplotlib unavailable -- no maps ({exc})", file=sys.stderr)
+        return False
+
+    diff = e - r
+    if diff.ndim != 2:                       # 3-D field: map the worst level
+        k = int(np.nanargmax(np.nanmax(np.abs(diff).reshape(diff.shape[0], -1), axis=1)))
+        r, e, diff = r[k], e[k], diff[k]
+        label = f"{label} [lev {k}]"
+    lim = _robust_limit(diff)
+    abs_max, rms_abs, rel_rms = stats
+    title = (f"{label}\nexp - ref   max|Δ|={abs_max:.3e}  RMS={rms_abs:.3e}  "
+             f"relRMS={rel_rms:.2e}   (colour clip ±{lim:.2e})")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if layout == "panels":
+        vlo, vhi = np.nanmin(r), np.nanmax(r)
+        fig, axs = plt.subplots(1, 3, figsize=(15.0, 4.8))
+        for ax, data, ttl, cmap, lims in (
+                (axs[0], r, "reference", "viridis", (vlo, vhi)),
+                (axs[1], e, "experiment", "viridis", (vlo, vhi)),
+                (axs[2], diff, "exp - ref", "RdBu_r", (-lim, lim))):
+            im = ax.imshow(data, origin="upper", interpolation="nearest",
+                           aspect="auto", cmap=cmap, vmin=lims[0], vmax=lims[1])
+            ax.set_title(ttl)
+            fig.colorbar(im, ax=ax, shrink=0.85)
+        fig.suptitle(title, fontsize=9)
+        fig.tight_layout()
+        fig.savefig(path, dpi=110)
+        plt.close(fig)
+        return True
+
+    # layout == "diff": one map, via cartopy if we can, plain imshow otherwise
+    try:
+        fd = fref.deepcopy()
+        fd.setdata(np.ma.masked_invalid(diff))
+        out = fd.cartoplot(colormap="RdBu_r", center_cmap_on_0=True,
+                           minmax=(-lim, lim), title=title, figsize=(11.0, 8.0))
+        fig = out[0] if isinstance(out, tuple) else out
+        try:
+            import cartopy.crs as ccrs
+            ax = out[1] if isinstance(out, tuple) and len(out) > 1 else fig.axes[0]
+            lons, lats = fref.geometry.get_lonlat_grid()
+            ij = np.unravel_index(np.nanargmax(np.abs(diff)), diff.shape)
+            ax.plot(float(np.asarray(lons)[ij]), float(np.asarray(lats)[ij]),
+                    "kx", ms=11, mew=2, transform=ccrs.PlateCarree())
+        except Exception:  # noqa: BLE001
+            pass
+        fig.savefig(path, dpi=110)
+        plt.close(fig)
+        return True
+    except Exception:  # noqa: BLE001 -- cartoplot is finicky; fall back
+        fig, ax = plt.subplots(figsize=(9.0, 7.0))
+        im = ax.imshow(diff, origin="upper", interpolation="nearest", aspect="auto",
+                       cmap="RdBu_r", vmin=-lim, vmax=lim)
+        try:
+            ij = np.unravel_index(np.nanargmax(np.abs(diff)), diff.shape)
+            ax.plot(ij[1], ij[0], "kx", ms=11, mew=2)
+        except Exception:  # noqa: BLE001
+            pass
+        fig.colorbar(im, ax=ax)
+        ax.set_title(title, fontsize=9)
+        fig.tight_layout()
+        fig.savefig(path, dpi=110)
+        plt.close(fig)
+        return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="diff_fa_grib",
@@ -60,9 +155,20 @@ def main(argv: list[str] | None = None) -> int:
                              "(default: every field in the reference)")
     parser.add_argument("--rel-max-diff", type=float, default=1e-4,
                         help="relative-RMS-diff threshold (default 1e-4)")
+    parser.add_argument("--plot-dir", metavar="DIR",
+                        help="write a difference-map PNG per field into DIR")
+    parser.add_argument("--plot-when", choices=("flagged", "all"), default="flagged",
+                        help="which fields to map (default: only those over threshold)")
+    parser.add_argument("--plot-layout", choices=("diff", "panels"), default="diff",
+                        help="'diff' = one exp-ref map (default); "
+                             "'panels' = ref | exp | exp-ref")
+    parser.add_argument("--plot-max", type=int, default=50,
+                        help="stop after this many maps (default 50)")
     args = parser.parse_args(argv)
 
     only = [v for v in args.fields.split(",") if v] or None
+    plot_dir = Path(args.plot_dir) if args.plot_dir else None
+    n_plotted = 0
 
     try:
         epygram.init_env()
@@ -139,6 +245,17 @@ def main(argv: list[str] | None = None) -> int:
         flag = " *" if flagged else ""
 
         print(f" FGDIFF | {label:32s} | {abs_max:14.6e} | {rms_abs:14.6e} | {rel_rms:14.6e}{flag}")
+
+        if (plot_dir is not None and n_plotted < args.plot_max
+                and (args.plot_when == "all" or flagged) and abs_max > 0.0):
+            png = plot_dir / f"{_safe(label)}.png"
+            if plot_field_diff(fref, r, e, label, (abs_max, rms_abs, rel_rms),
+                               png, args.plot_layout):
+                n_plotted += 1
+
+    if n_plotted:
+        print()
+        print(f"diff_fa_grib: wrote {n_plotted} difference map(s) to {plot_dir}")
 
     if any_warn:
         print()
