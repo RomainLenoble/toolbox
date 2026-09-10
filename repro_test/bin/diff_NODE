@@ -26,13 +26,26 @@ For each matched value pair (ref v1, exp v2):
 The per-field absolute floor (--atol-frac) is what stops near-zero fields
 (divergence, vorticity averages, ...) from tripping on meaningless noise:
 a difference smaller than a tiny fraction of the field's own peak is not a
-finding. See METRIC_NOTES.md for the (open) question of a chaos-aware
-metric.
+finding.
+
+--growth  (METRIC_NOTES.md option B1: chaos-aware)
+--------------------------------------------------
+For a build that is NOT meant to be bit-reproducible, a fixed rtol on the
+last step fails every legitimate build (chaotic growth). Instead --growth
+tracks per field the "digits of agreement"
+
+    d(n) = -log10( |exp_n - ref_n| / (|ref_n| + floor) )
+
+across forecast steps and judges the SHAPE:
+  * d at the first step must be high         (else: real bug, not chaos)
+  * d must not fall off a cliff between prints (discrete divergence event)
+  * the overall decline must be gentle       (else: instability / blow-up)
+--plot PATH writes a PNG of d(n) vs step (needs matplotlib).
 
 Exit codes
 ----------
-    0  all matched values within tolerance
-    1  some values exceed tolerance, or the two files don't line up
+    0  all matched values within tolerance  (or: --growth, all series healthy)
+    1  some values exceed tolerance / --growth flagged a series / files don't line up
     2  usage error / could not parse / nothing to compare
 
 Usage
@@ -40,6 +53,7 @@ Usage
     diff_NODE REF EXP [options]
     diff_NODE a/NODE.001_01 b/NODE.001_01 --full
     diff_NODE a b --gpnorms '*' --rtol 1e-3 --json
+    diff_NODE a b --growth --plot growth.png
 """
 
 from __future__ import annotations
@@ -50,6 +64,10 @@ import math
 import re
 import sys
 from dataclasses import dataclass, field as dc_field
+
+# digits-of-agreement cap: a rel-diff of 0 (bit-identical) is reported as
+# this many digits rather than +inf.
+D_CAP = 15.0
 
 # --------------------------------------------------------------------------
 # Presets
@@ -390,6 +408,166 @@ def obs_verdict(obs_ref: dict, obs_exp: dict, jo_rtol: float):
 
 
 # --------------------------------------------------------------------------
+# Growth analysis (METRIC_NOTES.md, option B1)
+#
+# For a build that is NOT meant to be bit-reproducible (new compiler, new
+# flags, new decomposition) a rounding-level perturbation at step 0 grows
+# ~exponentially -- so a plain rtol on the last step fails every legitimate
+# build. Instead, track per field the "digits of agreement"
+#     d(n) = -log10( |exp_n - ref_n| / (|ref_n| + floor_field) )
+# across forecast steps and check the *shape* of d(n):
+#   * d at the first step must be high     (else: real bug, not chaos)
+#   * d must not fall off a cliff between two prints (discrete divergence)
+#   * the overall decline must be gentle   (else: instability / blow-up)
+# --------------------------------------------------------------------------
+
+def _lsq_slope(xs: list[float], ys: list[float]) -> float:
+    n = len(xs)
+    if n < 2:
+        return math.nan
+    sx, sy = sum(xs), sum(ys)
+    sxx = sum(x * x for x in xs)
+    sxy = sum(x * y for x, y in zip(xs, ys))
+    denom = n * sxx - sx * sx
+    return (n * sxy - sx * sy) / denom if denom else math.nan
+
+
+def growth_series(cmp: Comparison, atol_frac: float, *, min_step: int = 1
+                  ) -> dict[tuple, list[tuple[int, float]]]:
+    """(kind, field, half) -> [(nstep, digits_of_agreement), ...] sorted by
+    step, using only the AVE row / scalar (the per-field domain norm).
+
+    min_step gates which forecast steps are included: the default of 1 is
+    what the growth verdict uses (the slope fit works in log(step) space, so
+    step 0 has no place there); pass min_step=0 to also include the initial
+    state for plotting.
+    """
+    scale: dict[tuple, float] = {}
+    for p in cmp.pairs:
+        fk = (p.rec_ref.kind, p.rec_ref.field)
+        scale[fk] = max(scale.get(fk, 0.0), abs(p.rec_ref.value))
+
+    series: dict[tuple, list[tuple[int, float]]] = {}
+    for p in cmp.pairs:
+        r = p.rec_ref
+        if r.nstep is None or r.nstep < min_step or r.stat != "avg" or r.level not in ("AVE", ""):
+            continue
+        denom = abs(r.value) + atol_frac * scale.get((r.kind, r.field), 0.0)
+        if p.abs_diff == 0.0:
+            d = D_CAP
+        elif denom == 0.0:
+            d = 0.0
+        else:
+            d = min(D_CAP, max(0.0, -math.log10(p.abs_diff / denom)))
+        series.setdefault((r.kind, r.field, r.half), []).append((r.nstep, d))
+
+    for k in series:
+        series[k] = sorted(dict(series[k]).items())   # dedupe step, sort
+    return series
+
+
+def analyze_growth(series: dict[tuple, list[tuple[int, float]]], *,
+                   dmin: float, cliff: float, slope_min: float) -> list[dict]:
+    out = []
+    for (kind, fld, half), pts in sorted(series.items()):
+        if len(pts) < 2:
+            continue
+        steps = [s for s, _ in pts]
+        ds = [d for _, d in pts]
+        worst_cliff = max((ds[i] - ds[i + 1] for i in range(len(ds) - 1)), default=0.0)
+        cliff_at = ""
+        if worst_cliff >= 0.3:
+            i = max(range(len(ds) - 1), key=lambda i: ds[i] - ds[i + 1])
+            cliff_at = f"{steps[i]}->{steps[i + 1]}"
+        slope = _lsq_slope([math.log10(s) for s in steps], ds)   # digits lost per decade of steps
+
+        flags = []
+        if ds[0] < dmin:
+            flags.append("d1<dmin")
+        if worst_cliff > cliff:
+            flags.append("cliff")
+        if not math.isnan(slope) and slope < slope_min:
+            flags.append("steep")
+
+        out.append({
+            "kind": kind, "field": fld, "half": half,
+            "steps": steps, "digits": ds,
+            "d_first": ds[0], "d_last": ds[-1],
+            "slope_per_decade": slope,
+            "worst_cliff": worst_cliff, "cliff_at": cliff_at,
+            "flags": flags,
+        })
+    return out
+
+
+def print_growth(analyses: list[dict], out, *, dmin: float, cliff: float, slope_min: float) -> None:
+    out.write(f"growth check (B1): d(n) = digits of agreement per forecast step; "
+              f"dmin={dmin:g}, cliff={cliff:g}, slope_min={slope_min:g}/decade\n\n")
+    out.write(f"{'FIELD':<18} {'HALF':<4} {'d(step1)':>9} {'d(last)':>9} "
+              f"{'slope/dec':>10} {'cliff':>7} {'@':<10} {'FLAGS':<18}\n")
+    for a in analyses:
+        sl = "   n/a" if math.isnan(a["slope_per_decade"]) else f"{a['slope_per_decade']:10.2f}"
+        out.write(f"{a['field']:<18} {a['half']:<4} {a['d_first']:9.2f} {a['d_last']:9.2f} "
+                  f"{sl:>10} {a['worst_cliff']:7.2f} {a['cliff_at']:<10} "
+                  f"{','.join(a['flags']) or '-':<18}\n")
+    out.write("\n")
+    out.write("  d1<dmin : diverges immediately -> likely a real bug, not chaos\n")
+    out.write("  cliff   : digits fall off between two prints -> discrete event (branch taken differently)\n")
+    out.write("  steep   : agreement decays faster than chaotic growth -> instability / blow-up\n")
+
+
+def make_growth_plot(series: dict[tuple, list[tuple[int, float]]], analyses: list[dict],
+                     path: str, *, dmin: float | None) -> bool:
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # noqa: BLE001
+        print(f"diff_NODE: matplotlib unavailable, skipping plot ({exc})", file=sys.stderr)
+        return False
+
+    flagged = {(a["field"], a["half"]) for a in analyses if a["flags"]}
+    fig, ax = plt.subplots(figsize=(8.0, 5.0))
+    many = max((len(p) for p in series.values()), default=0) > 25
+    plotted = 0
+    for (kind, fld, half), pts in sorted(series.items()):
+        if half == "P" or len(pts) < 2:      # corrector half only, less clutter
+            continue
+        xs = [s for s, _ in pts]
+        ys = [d for _, d in pts]
+        is_flag = (fld, half) in flagged
+        ax.plot(xs, ys, marker="" if many else "o", ms=3,
+                lw=2.4 if is_flag else 1.4, ls="--" if is_flag else "-",
+                label=fld + ("  (FLAG)" if is_flag else ""))
+        plotted += 1
+    if not plotted:
+        plt.close(fig)
+        print("diff_NODE: no multi-step series to plot", file=sys.stderr)
+        return False
+
+    if dmin is not None:
+        ax.axhline(dmin, color="crimson", ls="--", lw=1.2, label=f"dmin = {dmin:g}")
+    has_zero = any(s == 0 for pts in series.values() for s, _ in pts)
+    if has_zero:
+        # step 0 has no place on a log axis; keep 0..1 linear, log beyond.
+        ax.set_xscale("symlog", linthresh=1)
+        ax.set_xlim(left=-0.3)
+    else:
+        ax.set_xscale("log")
+    ax.set_ylim(bottom=0)
+    ax.set_xlabel("forecast step")
+    ax.set_ylabel("digits of agreement   -log10( |Δ| / (|ref| + floor) )")
+    ax.set_title("NODE norm agreement vs forecast step  (corrector half)")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(fontsize=8, ncol=2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+    print(f"diff_NODE: wrote plot {path}")
+    return True
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
@@ -425,6 +603,22 @@ def build_parser() -> argparse.ArgumentParser:
                         "peak |ref| value (default 1e-9)")
     g.add_argument("--jo-rtol", type=float, default=0.03,
                    help="relative tolerance for global observation Jo (default 0.03)")
+
+    g = p.add_argument_group("growth (B1: chaos-aware, for non-bit-reproducible builds)")
+    g.add_argument("--growth", action="store_true",
+                   help="verdict from the SHAPE of digits-of-agreement vs step, "
+                        "not a fixed rtol on the last step (see METRIC_NOTES.md)")
+    g.add_argument("--growth-dmin", type=float, default=8.0,
+                   help="min digits of agreement required at the first step (default 8)")
+    g.add_argument("--growth-cliff", type=float, default=4.0,
+                   help="max allowed drop in digits between two consecutive prints (default 4)")
+    g.add_argument("--growth-slope-min", type=float, default=-8.0,
+                   help="digits lost per decade of steps before it counts as "
+                        "instability rather than chaos (default -8)")
+    g.add_argument("--plot", metavar="PATH",
+                   help="write a PNG of digits-of-agreement vs forecast step, "
+                        "including the initial state (step 0) "
+                        "(needs matplotlib; skipped with a warning if absent)")
 
     g = p.add_argument_group("output")
     g.add_argument("--full", "-v", action="store_true",
@@ -485,9 +679,30 @@ def main(argv: list[str] | None = None) -> int:
     obs_exp = parse_obs(args.exp)
     ov = obs_verdict(obs_ref, obs_exp, args.jo_rtol)
 
-    ok = cmp.ok and not (ov and ov["flagged"])
     max_abs = max((p.abs_diff for p in cmp.pairs), default=0.0)
     max_rel = max((p.rel_diff for p in cmp.pairs if p.rel_diff != math.inf), default=0.0)
+
+    # --- growth analysis (B1) + optional plot --------------------------
+    growth = None
+    if args.growth or args.plot:
+        series = growth_series(cmp, args.atol_frac)
+        analyses = analyze_growth(series, dmin=args.growth_dmin,
+                                  cliff=args.growth_cliff, slope_min=args.growth_slope_min)
+        growth = {"series": series, "analyses": analyses}
+        if args.plot:
+            plot_series = growth_series(cmp, args.atol_frac, min_step=0)
+            make_growth_plot(plot_series, analyses, args.plot,
+                             dmin=args.growth_dmin if args.growth else None)
+
+    if args.growth:
+        if not (growth and growth["analyses"]):
+            print("diff_NODE: --growth needs multi-step norm data in both files "
+                  "(nothing to analyse).", file=sys.stderr)
+            return 2
+        growth_flags = [a for a in growth["analyses"] if a["flags"]]
+        ok = not growth_flags and not cmp.structural_mismatch
+    else:
+        ok = cmp.ok and not (ov and ov["flagged"])
 
     if args.json:
         payload = {
@@ -510,11 +725,25 @@ def main(argv: list[str] | None = None) -> int:
                        {"ref": ov["ref"]["jo"], "exp": ov["exp"]["jo"],
                         "rel": ov["rel"], "flagged": ov["flagged"]}),
         }
+        if args.growth and growth:
+            payload["growth"] = {
+                "dmin": args.growth_dmin, "cliff": args.growth_cliff,
+                "slope_min": args.growth_slope_min,
+                "series": [
+                    {k: a[k] for k in ("field", "half", "steps", "digits", "d_first",
+                                       "d_last", "slope_per_decade", "worst_cliff",
+                                       "cliff_at", "flags")}
+                    for a in growth["analyses"]
+                ],
+            }
         print(json.dumps(payload, indent=2))
         return 0 if ok else 1
 
     if not args.quiet:
-        if args.full:
+        if args.growth and growth:
+            print_growth(growth["analyses"], sys.stdout, dmin=args.growth_dmin,
+                         cliff=args.growth_cliff, slope_min=args.growth_slope_min)
+        elif args.full:
             print_full(cmp, sys.stdout, args.flagged_only)
         elif args.by_step:
             print_by_step(cmp, sys.stdout)
@@ -537,9 +766,19 @@ def main(argv: list[str] | None = None) -> int:
             print()
 
     verdict = "PASS" if ok else "FAIL"
-    print(f"{verdict}: {len(cmp.pairs)} values compared, {cmp.n_flagged} flagged, "
-          f"max|Δ|={max_abs:.2e}, max rel={max_rel:.2e} "
-          f"(rtol={args.rtol:g}, atol_frac={args.atol_frac:g})")
+    if args.growth and growth:
+        an = growth["analyses"]
+        d1 = min((a["d_first"] for a in an), default=float("nan"))
+        bad = sorted({a["field"] for a in an if a["flags"]})
+        detail = f"all {len(an)} series healthy" if not bad else f"flagged: {', '.join(bad)}"
+        if cmp.structural_mismatch:
+            detail += "; STRUCTURAL MISMATCH"
+        print(f"{verdict}: growth check -- {detail} "
+              f"(min d(step1)={d1:.1f}, dmin={args.growth_dmin:g})")
+    else:
+        print(f"{verdict}: {len(cmp.pairs)} values compared, {cmp.n_flagged} flagged, "
+              f"max|Δ|={max_abs:.2e}, max rel={max_rel:.2e} "
+              f"(rtol={args.rtol:g}, atol_frac={args.atol_frac:g})")
     return 0 if ok else 1
 
 

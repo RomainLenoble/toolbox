@@ -177,8 +177,12 @@ NODE.001_01, skipping the rest, and prints a summary.
 ### FA / GRIB output
 
 ```
-./compare_fa_grib.py <name> [--variant <tag>] [-- diff_fa_grib options]
+./compare_fa_grib.py <name> [--variant <tag>] [--maps] [-- diff_fa_grib options]
 ```
+
+(standalone `compare_fa_grib.py` needs `--maps` to draw maps; via
+`compare_test.py` / `run_test.py` they are **on by default** — `--no-maps`
+to skip.)
 
 Files to compare are listed one per line in `cases/<name>/fa_grib_files`
 (`#` comments ok). Each entry is a whole FA or GRIB file; `bin/diff_fa_grib`
@@ -191,6 +195,17 @@ Exit codes as elsewhere: `0` PASS, `1` FAIL (a field's relative RMS diff
 exceeds `--rel-max-diff`, default `1e-4`), other → `???`. Also usable
 standalone: `bin/diff_fa_grib ref.fa exp.fa [--fields A,B] [--rel-max-diff 1e-4]`.
 
+**Difference maps.** For every flagged field an **`exp − ref` map** PNG is
+written to `results/<run_id>/vs-*/fa_grib/<filename>.maps/` — automatically
+when run via `compare_test.py` / `run_test.py` (`--no-maps` to skip), or
+with `compare_fa_grib.py --maps` / `bin/diff_fa_grib --plot-dir DIR`
+standalone. One map per field by default (`--plot-layout diff`: projected
+map with coastlines via cartopy, diverging colours centred on 0, clipped at
+the 99.5th percentile of |Δ| with an `×` on the worst cell);
+`--plot-layout panels` gives a `ref | exp | exp−ref` triptych. `--plot-when
+all` maps every compared field; `--plot-max N` caps the count (default 50).
+Needs matplotlib (warns + skips if absent); cartopy optional.
+
 ## `bin/diff_NODE` (also usable standalone)
 
 Reworked comparator -- run it directly on any two NODE files, no test suite
@@ -201,6 +216,7 @@ bin/diff_NODE a/NODE.001_01 b/NODE.001_01           # per-field summary + verdic
 bin/diff_NODE a b --by-step                          # one row per (field, step)
 bin/diff_NODE a b --full --flagged-only              # every out-of-tolerance value
 bin/diff_NODE a b --json                             # machine-readable
+bin/diff_NODE a b --growth --plot growth.png         # chaos-aware verdict + plot (B1)
 ```
 
 - Compares **SPECTRAL NORMS** (`LOG(PREHYDS)` + `VORTICITY` / `DIVERGENCE`
@@ -220,10 +236,30 @@ bin/diff_NODE a b --json                             # machine-readable
   `2` on error / nothing to compare.
 - `--preset arome-lam|global`, `--fields-from FILE`, `--max-nstep N`.
 
-**The relative-diff metric is still a work in progress** for the
-not-bit-reproducible case (chaotic growth makes late-step relative diffs
-large for legitimate builds). See `METRIC_NOTES.md` for the options and
-open questions.
+### `--growth` — chaos-aware verdict (METRIC_NOTES.md B1)
+
+For builds that are **not** meant to be bit-reproducible (new compiler,
+`-O2`→`-O3`, new node type), a fixed `--rtol` on the last step fails every
+legitimate build. `--growth` instead tracks, per spectral field, the
+**digits of agreement** `d(n) = -log10( |Δ| / (|ref| + floor) )` across
+forecast steps and judges the *shape*:
+
+| flag | meaning |
+|---|---|
+| `d1<dmin` | diverges immediately → a real bug (wrong init, uninit memory, wrong constant), not chaos |
+| `cliff` | digits fall off a cliff between two prints → a discrete event (branch taken differently) |
+| `steep` | agreement decays faster than chaotic growth → instability / blow-up |
+
+Knobs: `--growth-dmin` (default 8), `--growth-cliff` (4),
+`--growth-slope-min` (−8 digits/decade); restrict the meaningful window
+with `--max-nstep`. `--plot PATH` writes a PNG of `d(n)` vs step (needs
+matplotlib; skipped with a warning if absent). Put `--growth` in a case's
+`node_diff_args` and `compare_test.py` runs it that way and drops
+`NODE_growth.png` next to `NODE.txt` in the report dir.
+
+Still open (see `METRIC_NOTES.md`): the `--growth-slope-min` threshold
+wants calibration against real past compiler bumps; B2 (a perturbed second
+reference run as the noise envelope) is the principled successor.
 
 ## Current cases
 
