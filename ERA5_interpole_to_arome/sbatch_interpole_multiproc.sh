@@ -4,9 +4,7 @@
 #SBATCH --time=02:10:00
 #SBATCH --cpus-per-task=32
 
-# --- site/environment setup: EDIT THIS to match your own account -----------
 # This assumes the GL toolbox is installed at /home/gmgec/mrgo/lenobler/SAVE/code/GL in your own
-# home directory. If it lives elsewhere, change this path.
 source /home/gmgec/mrgo/lenobler/SAVE/code/GL/config/setenv.belenos
 module load gcc/14.1.0
 # Environment providing epygram, gl and ffmpeg. Edit/replace if your site
