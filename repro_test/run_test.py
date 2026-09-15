@@ -29,8 +29,17 @@ Copies cases/<case_name>/launch/ into .runs/<run_id>/ (run_id's basename
 becomes EXPID) and launches param_Eclis from there. param_Eclis's own
 (very verbose) output goes to results/<run_id>/launch.log.
 
+With --repro, after both runs finish, each is also checked for its
+completion marker (last_NODE.001_01, the dir above rundir -- see
+lib/paths.py): this confirms the run actually reached the end of the
+forecast, rather than just "NODE.001_01 stopped changing for a while"
+(which a crashed or stalled run can also produce). A missing marker never
+turns a FAIL into anything else, but it does stop a comparison from being
+reported as PASS -- printed instead as "??? -- could not compare".
+
 Exit (with --repro): 0 if both checks pass, 1 if either FAILs, 2 if either
-could not run. Otherwise relays compare_test.py's exit code.
+could not run (including: ran, but a run's completion marker is missing).
+Otherwise relays compare_test.py's exit code.
 """
 
 from __future__ import annotations
@@ -96,11 +105,27 @@ def prepare_and_submit(rp: RunPaths, launch_src: Path, run_id: str,
 
 
 def wait_for_node(rp: RunPaths, run_id: str, poll: float, timeout: float) -> None:
-    """Block until <run_id>'s NODE.001_01 exists and has stopped growing."""
+    """Block until <run_id>'s NODE.001_01 is ready. Ready means either:
+
+      * the completion marker `last_NODE.001_01` has appeared in the dir
+        above rundir  (positive 'job finished' signal -- wins immediately), or
+      * rundir/NODE.001_01 exists and its (mtime, size) has not changed for
+        3 consecutive polls.
+
+    The stop-changing check reads stat() over a shared filesystem, which can
+    serve stale mtime/size while compute nodes are still writing -- so where
+    the workflow leaves a marker, that is the signal that counts.
+    """
     node = rp.node(run_id)
+    done = rp.node_done_marker(run_id)
     waited = 0.0
-    print(f">>> [{run_id}] waiting for {node} (poll {poll:g}s, timeout {timeout:g}s)...")
+    print(f">>> [{run_id}] waiting for {node}\n"
+          f"        or marker {done}   (poll {poll:g}s, timeout {timeout:g}s)...")
+
     while not node.is_file():
+        if done.is_file():
+            print(f">>> [{run_id}] completion marker present -- run finished.")
+            return
         if waited >= timeout:
             sys.exit(f"!!! [{run_id}] timed out waiting for {node} to appear.")
         time.sleep(poll)
@@ -109,18 +134,34 @@ def wait_for_node(rp: RunPaths, run_id: str, poll: float, timeout: float) -> Non
     prev = None
     stable = 0
     while stable < 3:
+        if done.is_file():
+            print(f">>> [{run_id}] completion marker present -- run finished.")
+            return
         if waited >= timeout:
             sys.exit(f"!!! [{run_id}] timed out waiting for {node} to stabilize.")
         time.sleep(poll)
         waited += poll
         try:
             st = node.stat()
-            cur = (st.st_mtime, st.st_size)
+            cur = (st.st_mtime_ns, st.st_size)
         except OSError:
             cur = None
         stable = stable + 1 if cur is not None and cur == prev else 0
         prev = cur
-    print(f">>> [{run_id}] NODE.001_01 ready.")
+    print(f">>> [{run_id}] NODE.001_01 unchanged for ~{3 * poll:g}s -- assuming ready.")
+
+
+def confirm_reached_end(rp: RunPaths, run_id: str) -> bool:
+    """True if <run_id> definitely reached the end of the forecast -- its
+    completion marker last_NODE.001_01 (lib/paths.py) is present. This is
+    distinct from wait_for_node()'s "NODE.001_01 stopped changing" fallback,
+    which only *infers* completion and can be fooled by a stalled or
+    crashed run that simply stopped writing."""
+    marker = rp.node_done_marker(run_id)
+    ok = marker.is_file()
+    verdict = "reached the end" if ok else "did NOT reach the end -- no completion marker"
+    print(f">>> [{run_id}] {verdict}: {marker}")
+    return ok
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -185,6 +226,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.repro:
         wait_for_node(rp, rep_run_id, args.poll_interval, args.timeout)
 
+    # --- did the run(s) actually reach the end? ------------------------
+    reached_end = confirm_reached_end(rp, run_id)
+    reached_end_rep = confirm_reached_end(rp, rep_run_id) if args.repro else True
+    if args.repro and not (reached_end and reached_end_rep):
+        print("!!! at least one run has no completion marker -- it may have crashed "
+              "or stalled before finishing. The comparisons below may not be "
+              "trustworthy.", file=sys.stderr)
+
     if args.no_compare:
         print(">>> --no-compare given, done.")
         return 0
@@ -206,11 +255,22 @@ def main(argv: list[str] | None = None) -> int:
               f"references/{case_name}/\n{bar}")
         rc_ref = compare_test.main([case_name, *v_args])
 
+        if not (reached_end and reached_end_rep):
+            # don't claim PASS on a comparison we can't vouch for -- a
+            # matching / differing NODE from a run that never reached the
+            # end is not the answer the check is supposed to give
+            if rc_repro == 0:
+                rc_repro = 2
+            if rc_ref == 0:
+                rc_ref = 2
+
         verdict = {0: "PASS", 1: "FAIL  -- the two identical runs differ",
                    2: "???   -- could not compare"}
         verdict_ref = {0: "PASS", 1: "FAIL  -- differs from the known-good result",
                        2: "???   -- could not compare"}
         print(f"\n=== executable test summary [{case_name} / {args.variant}] ===")
+        print(f"  reached end      : {args.variant}={'yes' if reached_end else 'NO'}   "
+              f"{args.variant}__rep={'yes' if reached_end_rep else 'NO'}")
         print(f"  bit-reproducible : {verdict.get(rc_repro, verdict[2])}")
         print(f"  vs reference     : {verdict_ref.get(rc_ref, verdict_ref[2])}")
         if rc_repro == 0 and rc_ref == 0:
