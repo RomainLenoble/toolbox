@@ -69,7 +69,23 @@ class RunPaths:
 
     # -- output locations ------------------------------------------------
     def node(self, run_id: str) -> Path:
-        return self._run_src(run_id) / "rundir" / "NODE.001_01"
+        """The run's NODE.001_01. Normally rundir/NODE.001_01; once the run
+        has finished and its rundir has been moved away, fall back to the
+        `last_NODE.001_01` left in the directory above (see
+        node_done_marker)."""
+        primary = self._run_src(run_id) / "rundir" / "NODE.001_01"
+        if not primary.is_file():
+            marker = self.node_done_marker(run_id)
+            if marker.is_file():
+                return marker
+        return primary
+
+    def node_done_marker(self, run_id: str) -> Path:
+        """`last_NODE.001_01` in the directory just above rundir -- written by
+        the workflow only once the run is complete, so a positive
+        'job finished' signal (unlike watching rundir/NODE.001_01 stop
+        growing, which a shared filesystem can misreport)."""
+        return self._run_src(run_id) / "last_NODE.001_01"
 
     def fa_grib(self, run_id: str, fname: str) -> Path:
         return self._run_src(run_id) / "rundir" / fname
