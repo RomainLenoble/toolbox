@@ -50,9 +50,12 @@ Convention: everywhere, `<name>` is the case's folder name (also its
 ```
 
 This submits the job (an async cluster job via mtool/sbatch), then waits
-for `NODE.001_01` to appear and stop changing and calls `compare_test.py`.
-With `--no-wait` it just submits and prints the command to run once the
-job is done.
+until the run is done — either a `last_NODE.001_01` marker appears in the
+directory above `rundir/` (the reliable signal), or `rundir/NODE.001_01`
+stops changing for a few polls — and calls `compare_test.py`. Once the run
+has finished, `compare_test.py` reads `last_NODE.001_01` if `rundir/` is
+already gone. With `--no-wait` it just submits and prints the command to
+run later.
 
 The run's outputs are read **in place** — nothing is copied. `lib/paths.py`
 resolves where they are (`<GROUP>` and `<INIDATE>` come from the run's
@@ -113,12 +116,22 @@ one.
 | **[1/2] bit-reproducible** | `<tag>` vs `<tag>__rep` — does the executable give the same answer run-to-run? | bit-exact (`--rtol 0 --atol 0 --atol-frac 0 --gpnorms '*'`, netCDF/FA-GRIB `--rel-max-diff 0`) |
 | **[2/2] vs reference** | `<tag>` vs `references/<name>/` — does it still match the known-good result? | the case's normal tolerances (`node_diff_args`, `--rel-max-diff` default) |
 
+Before comparing, both runs are checked for their **completion marker**
+(`last_NODE.001_01`, the directory above `rundir/` — see `lib/paths.py`):
+this confirms each one actually reached the end of the forecast, rather
+than `wait_for_node()`'s fallback inference ("`NODE.001_01` stopped
+changing for a while", which a crashed or stalled run can also produce). A
+missing marker prints `reached end : v7.5=yes   v7.5__rep=NO` in the
+summary and downgrades a would-be `PASS` to `???` (never hides a real
+`FAIL`).
+
 `run_test.py` exits `0` only if both pass, `1` if either FAILs, `2` if
-either could not run. Add `--repro-set KEY=VALUE` to also vary something
-in the `__rep` run (e.g. `--repro-set NODE_ARP=3` for a different MPI
-decomposition — a stronger reproducibility test). `--no-compare` submits
-and waits without comparing; `--no-wait` just submits and prints the two
-`compare_test.py` commands.
+either could not run (including: a run's completion marker is missing).
+Add `--repro-set KEY=VALUE` to also vary something in the `__rep` run
+(e.g. `--repro-set NODE_ARP=3` for a different MPI decomposition — a
+stronger reproducibility test). `--no-compare` submits and waits without
+comparing; `--no-wait` just submits and prints the two `compare_test.py`
+commands.
 
 Standalone, against an already-finished pair:
 
