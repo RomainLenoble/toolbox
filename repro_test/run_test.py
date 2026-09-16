@@ -15,10 +15,10 @@ Usage:
   --set KEY=VALUE      Patch the `KEY=...` assignment line in param_Eclis
                         (e.g. --set pack=/home/.../arome_v7.5.../). Repeatable.
   --repro             Also launch a SECOND, identical run under
-                        "<case>__<tag>__rep" and, once both finish, do:
-                          [1/2] <tag> vs <tag>__rep -- bit-reproducible? (bit-exact)
+                        "<case>__<tag>_rep" and, once both finish, do:
+                          [1/2] <tag> vs <tag>_rep -- bit-reproducible? (bit-exact)
                           [2/2] <tag> vs saved reference -- still matches? (case tolerances)
-  --repro-set KEY=VALUE  Extra override applied to the __rep run only (e.g.
+  --repro-set KEY=VALUE  Extra override applied to the _rep run only (e.g.
                         --repro-set NODE_ARP=3 -- a stronger repro test). Repeatable.
   --no-compare        Submit + wait, but don't run the comparison(s).
   --no-wait           Just submit and return: print the command(s) to run later.
@@ -27,7 +27,7 @@ Usage:
 
 Copies cases/<case_name>/launch/ into .runs/<run_id>/ (run_id's basename
 becomes EXPID) and launches param_Eclis from there. param_Eclis's own
-(very verbose) output goes to results/<run_id>/launch.log.
+(very verbose) stdout/stderr go to .runs/<run_id>/out and .runs/<run_id>/err.
 
 With --repro, after both runs finish, each is also checked for its
 completion marker (last_NODE.001_01, the dir above rundir -- see
@@ -81,22 +81,22 @@ def prepare_and_submit(rp: RunPaths, launch_src: Path, run_id: str,
         apply_override(param_file, key, value)
         print(f">>> [{run_id}] override: {key}={value}")
 
-    result_dir = HERE / "results" / run_id
-    result_dir.mkdir(parents=True, exist_ok=True)
-    log = result_dir / "launch.log"
-    print(f">>> [{run_id}] launching from {rdir} (EXPID={run_id}); param_Eclis output -> {log}")
+    out_log = rdir / "out"
+    err_log = rdir / "err"
+    print(f">>> [{run_id}] launching from {rdir} (EXPID={run_id}); "
+          f"param_Eclis output -> {out_log} / {err_log}")
 
     import subprocess
 
     # param_Eclis is interactive (prompts for confirmation on stdin) and long
     # running; launch it detached, feeding a stream of "y" via `yes`, with its
-    # combined output going to launch.log. We don't wait here -- wait_for_node()
-    # polls NODE.001_01 as the synchronization point.
+    # stdout/stderr going to separate files. We don't wait here --
+    # wait_for_node() polls NODE.001_01 as the synchronization point.
     yes = subprocess.Popen(["yes"], stdout=subprocess.PIPE)
-    with open(log, "w") as fh:
+    with open(out_log, "w") as out_fh, open(err_log, "w") as err_fh:
         proc = subprocess.Popen(
             ["./param_Eclis"], cwd=rdir,
-            stdin=yes.stdout, stdout=fh, stderr=subprocess.STDOUT,
+            stdin=yes.stdout, stdout=out_fh, stderr=err_fh,
             start_new_session=True,
         )
     yes.stdout.close()  # let `yes` receive SIGPIPE once param_Eclis exits
@@ -198,8 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         print("--repro needs --variant <tag> (the two runs need distinct EXPIDs).", file=sys.stderr)
         return 1
 
-    run_id = f"{case_name}__{args.variant}" if args.variant else case_name
-    rep_run_id = f"{run_id}__rep"
+    run_id = f"{case_name}_{args.variant}" if args.variant else case_name
+    rep_run_id = f"{run_id}_rep"
     rp = RunPaths(HERE, case_name)
 
     # --- submit ------------------------------------------------------
@@ -213,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         print()
         print(">>> --no-wait given. Once the job(s) have finished, run:")
         if args.repro:
-            print(f"    {HERE / 'compare_test.py'} {case_name}{v} --against {args.variant}__rep"
+            print(f"    {HERE / 'compare_test.py'} {case_name}{v} --against {args.variant}_rep"
                   f"   # [1/2] bit-reproducibility")
             print(f"    {HERE / 'compare_test.py'} {case_name}{v}"
                   f"                              # [2/2] vs saved reference")
@@ -248,8 +248,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.repro:
         bar = "=" * 70
         print(f"\n{bar}\n  [1/2] bit-reproducibility of the executable:  "
-              f"{args.variant}  vs  {args.variant}__rep\n{bar}")
-        rc_repro = compare_test.main([case_name, *v_args, "--against", f"{args.variant}__rep"])
+              f"{args.variant}  vs  {args.variant}_rep\n{bar}")
+        rc_repro = compare_test.main([case_name, *v_args, "--against", f"{args.variant}_rep"])
 
         print(f"\n{bar}\n  [2/2] vs saved reference:  {args.variant}  vs  "
               f"references/{case_name}/\n{bar}")
@@ -270,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
                        2: "???   -- could not compare"}
         print(f"\n=== executable test summary [{case_name} / {args.variant}] ===")
         print(f"  reached end      : {args.variant}={'yes' if reached_end else 'NO'}   "
-              f"{args.variant}__rep={'yes' if reached_end_rep else 'NO'}")
+              f"{args.variant}_rep={'yes' if reached_end_rep else 'NO'}")
         print(f"  bit-reproducible : {verdict.get(rc_repro, verdict[2])}")
         print(f"  vs reference     : {verdict_ref.get(rc_ref, verdict_ref[2])}")
         if rc_repro == 0 and rc_ref == 0:

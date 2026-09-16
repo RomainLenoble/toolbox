@@ -25,8 +25,8 @@ use -v / --verbose to also stream the full diff tables.
 
 Usage: compare_test.py <case_name> [--variant <tag>] [--against <tag>] [-v] [--maps|--no-maps] [run_NODE_path] [-- diff_NODE options]
 
-    --variant <tag>   which run's outputs to check (run_id "<case>__<tag>").
-    --against <tag2>  compare against run "<case>__<tag2>" instead of the
+    --variant <tag>   which run's outputs to check (run_id "<case>_<tag>").
+    --against <tag2>  compare against run "<case>_<tag2>" instead of the
                        stored reference, demanding *bit-exact* agreement
                        (diff_NODE --rtol 0 --atol 0 --atol-frac 0 --gpnorms '*',
                        diff_netcdf/diff_fa_grib --rel-max-diff 0).
@@ -75,9 +75,9 @@ def main(argv: list[str] | None = None) -> int:
     maps = not args.no_maps   # on by default; --maps is accepted but redundant
 
     case_name = args.case_name
-    run_id = f"{case_name}__{args.variant}" if args.variant else case_name
+    run_id = f"{case_name}_{args.variant}" if args.variant else case_name
     label = make_label(case_name, args.variant, args.against)
-    against_run_id = f"{case_name}__{args.against}" if args.against else ""
+    against_run_id = f"{case_name}_{args.against}" if args.against else ""
 
     rp = RunPaths(HERE, case_name)
     result = Path(args.run_node_path) if args.run_node_path else rp.node(run_id)

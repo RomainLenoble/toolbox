@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = skipped = 0
     for case_dir in sorted(d for d in (HERE / "cases").iterdir() if d.is_dir()):
         case_name = case_dir.name
-        run_id = f"{case_name}__{args.variant}" if args.variant else case_name
+        run_id = f"{case_name}_{args.variant}" if args.variant else case_name
         node = RunPaths(HERE, case_name).node(run_id)
         if not node.is_file():
             print(f"SKIP  [{run_id}]  -- no NODE.001_01 at {node} yet")

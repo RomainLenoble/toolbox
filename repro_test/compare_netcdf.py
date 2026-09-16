@@ -45,9 +45,9 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(left)
 
     case_name = args.case_name
-    run_id = f"{case_name}__{args.variant}" if args.variant else case_name
+    run_id = f"{case_name}_{args.variant}" if args.variant else case_name
     label = make_label(case_name, args.variant, args.against)
-    against_run_id = f"{case_name}__{args.against}" if args.against else ""
+    against_run_id = f"{case_name}_{args.against}" if args.against else ""
 
     vars_file = HERE / "cases" / case_name / "netcdf_vars"
     if not vars_file.is_file():

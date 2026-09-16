@@ -55,9 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     plot_opts_given = any(o.startswith("--plot") for o in diff_opts)
 
     case_name = args.case_name
-    run_id = f"{case_name}__{args.variant}" if args.variant else case_name
+    run_id = f"{case_name}_{args.variant}" if args.variant else case_name
     label = make_label(case_name, args.variant, args.against)
-    against_run_id = f"{case_name}__{args.against}" if args.against else ""
+    against_run_id = f"{case_name}_{args.against}" if args.against else ""
 
     files_list = HERE / "cases" / case_name / "fa_grib_files"
     if not files_list.is_file():
