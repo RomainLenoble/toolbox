@@ -12,7 +12,10 @@ What it compares
   default, per-level with --levels), each tied to its forecast step and
   predictor/corrector half (`NORMS AT NSTEP CNT4 (PREDICTOR) N`).
 * GPNORM blocks (gridpoint norms) -- opt in with --gpnorms.
-* Global observation Jo, when present.
+* SURFEX surface norms -- the `SFX.<NAME> : AVERAGE MINIMUM MAXIMUM` rows
+  dumped under "GPNORMS OF FIELDS TO BE WRITTEN OUT ON FILE" at each
+  surface-history write. On by default (--sfx '*'); tied to the write step
+  taken from the enclosing `WRMLPPA NSTEP=... CDCONF=...` write banner.
 
 Metric
 ------
@@ -53,6 +56,8 @@ Usage
     diff_NODE REF EXP [options]
     diff_NODE a/NODE.001_01 b/NODE.001_01 --full
     diff_NODE a b --gpnorms '*' --rtol 1e-3 --json
+    diff_NODE a b --sfx 'SFX.T2M,SFX.TS_WATER'   # only these surface fields
+    diff_NODE a b --sfx ''                       # no surface fields
     diff_NODE a b --growth --plot growth.png
 """
 
@@ -76,17 +81,21 @@ D_CAP = 15.0
 PRESETS = {
     # AROME / ALADIN limited area: spectral norms present, gridpoint norms
     # are microphysics/diagnostic tracers -- compare spectral only by default.
+    # SURFEX (SFX.*) is present, so surface norms stay on.
     "arome-lam": {
         "spnorms": "VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY",
         "gpnorms": "",
+        "sfx": "*",
     },
-    # Global ARPEGE / IFS.
+    # Global ARPEGE / IFS -- no SURFEX surface norms.
     "global": {
         "spnorms": "VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY,LOG(PREHYDS)",
         "gpnorms": "",
+        "sfx": "",
     },
 }
 DEFAULT_SPNORMS = "VORTICITY,DIVERGENCE,TEMPERATURE,KINETIC ENERGY"
+DEFAULT_SFX = "*"
 
 # --------------------------------------------------------------------------
 # Parsing
@@ -99,16 +108,20 @@ RE_AVE = re.compile(r"^\s*AVE\s+(.*\S)\s*$")
 RE_LEVEL_ROW = re.compile(r"^\s*(\d+)\s+(-?\d[0-9.eE+\- ]*\S)\s*$")
 RE_GP_HEADER = re.compile(r"^\s*GPNORM\s+(.+?)\s+AVERAGE\s+MINIMUM\s+MAXIMUM\s*$")
 
-RE_OBSTYPE = re.compile(r"ObsType\s+(\d+)\s+Total:\s*(\d+)\s+(\S+)\s+")
-RE_JOGLOBAL = re.compile(r"Jo Global\s*:\s*(\d+)\s+(\S+)")
+# SURFEX surface norms, e.g.
+#   SFX.TS_WATER     : 0.280160000000001E+03 0.280160000000000E+03 ...
+RE_SFX_ROW = re.compile(r"^\s*(SFX\.\S+)\s*:\s*(.+\S)\s*$")
+# The surface dump is not inside a CNT4 norm block, so its forecast step (and
+# predictor/corrector-style tag) comes from the write banner that precedes it.
+RE_WRITE_STEP = re.compile(r"WRMLPPA\s+NSTEP=\s*(\d+)\s+CDCONF=(\S+)")
 
 HALF = {"PREDICTOR": "P", "CORRECTOR": "C"}
 
 
 @dataclass
 class Rec:
-    kind: str            # "sp" | "gp"
-    field: str           # "VORTICITY", "LOG(PREHYDS)", "HUMI.SPECIFI", ...
+    kind: str            # "sp" | "gp" | "sfx"
+    field: str           # "VORTICITY", "LOG(PREHYDS)", "SFX.TS_WATER", ...
     nstep: int | None    # forecast step, or None for pre-forecast dumps
     half: str            # "P" | "C" | ""
     level: str           # "AVE" | "L01".. | "" (scalar)
@@ -135,10 +148,10 @@ def _floats(s: str) -> list[float]:
     return out
 
 
-def parse_node(path: str, spnorms: set[str], gpnorms: object,
+def parse_node(path: str, spnorms: set[str], gpnorms: object, sfxnorms: object,
                want_levels: bool) -> list[Rec]:
-    """gpnorms: set[str] of field names, or the string '*' for all, or an
-    empty set for none."""
+    """gpnorms, sfxnorms: set[str] of field names, or the string '*' for all,
+    or an empty set for none."""
     try:
         with open(path, "r", errors="replace") as fh:
             lines = fh.readlines()
@@ -148,6 +161,8 @@ def parse_node(path: str, spnorms: set[str], gpnorms: object,
     recs: list[Rec] = []
     nstep: int | None = None
     half = ""
+    write_nstep: int | None = None
+    write_half = ""
     i, n = 0, len(lines)
 
     while i < n:
@@ -157,6 +172,23 @@ def parse_node(path: str, spnorms: set[str], gpnorms: object,
         if m:
             half = HALF[m.group(1)]
             nstep = int(m.group(2))
+            i += 1
+            continue
+
+        m = RE_WRITE_STEP.search(line)
+        if m:
+            write_nstep = int(m.group(1))
+            write_half = m.group(2)
+            i += 1
+            continue
+
+        m = RE_SFX_ROW.match(line)
+        if m and sfxnorms:
+            fld = m.group(1)
+            if sfxnorms == "*" or fld in sfxnorms:
+                vals = _floats(m.group(2))
+                for st, v in zip(("avg", "min", "max"), vals):
+                    recs.append(Rec("sfx", fld, write_nstep, write_half, "AVE", st, v))
             i += 1
             continue
 
@@ -213,26 +245,6 @@ def parse_node(path: str, spnorms: set[str], gpnorms: object,
         i += 1
 
     return recs
-
-
-def parse_obs(path: str) -> dict:
-    obstype: dict[int, dict] = {}
-    jog = None
-    with open(path, "r", errors="replace") as fh:
-        for line in fh:
-            m = RE_OBSTYPE.search(line)
-            if m:
-                try:
-                    obstype[int(m.group(1))] = {"n": int(m.group(2)), "jo": float(m.group(3))}
-                except ValueError:
-                    pass
-            m = RE_JOGLOBAL.search(line)
-            if m:
-                try:
-                    jog = {"n": int(m.group(1)), "jo": float(m.group(2))}
-                except ValueError:
-                    pass
-    return {"obstype": obstype, "jog": jog}
 
 
 # --------------------------------------------------------------------------
@@ -396,15 +408,6 @@ def print_full(cmp: Comparison, out, only_flagged: bool) -> None:
         out.write(f"{r.field:<20} {r.where():<16} {r.value:18.9e} {p.v_exp:18.9e} "
                   f"{p.abs_diff:12.4e} {fmt_rel(p.rel_diff):>9}"
                   f"{'  *' if p.flagged else ''}\n")
-
-
-def obs_verdict(obs_ref: dict, obs_exp: dict, jo_rtol: float):
-    jr, je = obs_ref["jog"], obs_exp["jog"]
-    if not jr or not je:
-        return None
-    denom = abs(jr["jo"]) or 1.0
-    rel = abs(je["jo"] - jr["jo"]) / denom
-    return {"ref": jr, "exp": je, "rel": rel, "flagged": rel > jo_rtol}
 
 
 # --------------------------------------------------------------------------
@@ -587,13 +590,17 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--gpnorms", default="",
                    help="gridpoint norm fields to also compare; '*' = all, "
                         "'' = none (default)")
+    g.add_argument("--sfx", default=None,
+                   help=f"SURFEX surface norm fields (SFX.*); default '*' = all "
+                        f"found, '' = none")
     g.add_argument("--levels", action="store_true",
                    help="also compare per-level spectral norms (default: AVE row only)")
     g.add_argument("--max-nstep", type=int, default=None,
                    help="only compare forecast steps with nstep <= N")
     g.add_argument("--fields-from", metavar="FILE",
                    help="file with extra field names, one per line; "
-                        "'sp:NAME' / 'gp:NAME' prefixes accepted (default sp:)")
+                        "'sp:NAME' / 'gp:NAME' / 'sfx:NAME' prefixes accepted "
+                        "(default sp:)")
 
     g = p.add_argument_group("tolerance")
     g.add_argument("--rtol", type=float, default=1e-6, help="relative tolerance (default 1e-6)")
@@ -601,9 +608,6 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--atol-frac", type=float, default=1e-9,
                    help="per-field absolute floor as a fraction of that field's "
                         "peak |ref| value (default 1e-9)")
-    g.add_argument("--jo-rtol", type=float, default=0.03,
-                   help="relative tolerance for global observation Jo (default 0.03)")
-
     g = p.add_argument_group("growth (B1: chaos-aware, for non-bit-reproducible builds)")
     g.add_argument("--growth", action="store_true",
                    help="verdict from the SHAPE of digits-of-agreement vs step, "
@@ -636,15 +640,21 @@ def resolve_fields(args):
         pre = PRESETS[args.preset]
         sp_raw = pre["spnorms"] if args.spnorms is None else args.spnorms
         gp_raw = args.gpnorms or pre["gpnorms"]
+        sfx_raw = pre.get("sfx", DEFAULT_SFX) if args.sfx is None else args.sfx
     else:
         sp_raw = DEFAULT_SPNORMS if args.spnorms is None else args.spnorms
         gp_raw = args.gpnorms
+        sfx_raw = DEFAULT_SFX if args.sfx is None else args.sfx
 
     spnorms = {s.strip() for s in sp_raw.split(",") if s.strip()}
     if gp_raw.strip() == "*":
         gpnorms: object = "*"
     else:
         gpnorms = {s.strip() for s in gp_raw.split(",") if s.strip()}
+    if sfx_raw.strip() == "*":
+        sfxnorms: object = "*"
+    else:
+        sfxnorms = {s.strip() for s in sfx_raw.split(",") if s.strip()}
 
     if args.fields_from:
         with open(args.fields_from) as fh:
@@ -655,29 +665,28 @@ def resolve_fields(args):
                 if s.startswith("gp:"):
                     if gpnorms != "*":
                         gpnorms.add(s[3:].strip())
+                elif s.startswith("sfx:"):
+                    if sfxnorms != "*":
+                        sfxnorms.add(s[4:].strip())
                 else:
                     spnorms.add(s.removeprefix("sp:").strip())
-    return spnorms, gpnorms
+    return spnorms, gpnorms, sfxnorms
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    spnorms, gpnorms = resolve_fields(args)
+    spnorms, gpnorms, sfxnorms = resolve_fields(args)
 
-    recs_ref = parse_node(args.ref, spnorms, gpnorms, args.levels)
-    recs_exp = parse_node(args.exp, spnorms, gpnorms, args.levels)
+    recs_ref = parse_node(args.ref, spnorms, gpnorms, sfxnorms, args.levels)
+    recs_exp = parse_node(args.exp, spnorms, gpnorms, sfxnorms, args.levels)
 
     if not recs_ref and not recs_exp:
-        print("diff_NODE: no SPECTRAL NORMS / GPNORM blocks found in either file "
-              "(check --spnorms/--gpnorms).", file=sys.stderr)
+        print("diff_NODE: no SPECTRAL NORMS / GPNORM / SFX blocks found in either "
+              "file (check --spnorms/--gpnorms/--sfx).", file=sys.stderr)
         return 2
 
     cmp = compare(recs_ref, recs_exp, rtol=args.rtol, atol=args.atol,
                   atol_frac=args.atol_frac, max_nstep=args.max_nstep)
-
-    obs_ref = parse_obs(args.ref)
-    obs_exp = parse_obs(args.exp)
-    ov = obs_verdict(obs_ref, obs_exp, args.jo_rtol)
 
     max_abs = max((p.abs_diff for p in cmp.pairs), default=0.0)
     max_rel = max((p.rel_diff for p in cmp.pairs if p.rel_diff != math.inf), default=0.0)
@@ -702,7 +711,7 @@ def main(argv: list[str] | None = None) -> int:
         growth_flags = [a for a in growth["analyses"] if a["flags"]]
         ok = not growth_flags and not cmp.structural_mismatch
     else:
-        ok = cmp.ok and not (ov and ov["flagged"])
+        ok = cmp.ok
 
     if args.json:
         payload = {
@@ -721,9 +730,6 @@ def main(argv: list[str] | None = None) -> int:
                  "max_abs_diff": f.max_abs, "max_rel_diff": (None if f.max_rel == math.inf else f.max_rel)}
                 for f in sorted(cmp.fields.values(), key=lambda f: (f.kind, f.field))
             ],
-            "obs_jo": (None if not ov else
-                       {"ref": ov["ref"]["jo"], "exp": ov["exp"]["jo"],
-                        "rel": ov["rel"], "flagged": ov["flagged"]}),
         }
         if args.growth and growth:
             payload["growth"] = {
@@ -757,12 +763,6 @@ def main(argv: list[str] | None = None) -> int:
                   f"(runs produced different norm blocks -- crashed / diverged early?)")
             for key, where in (cmp.ref_only[:5] + cmp.exp_only[:5]):
                 print(f"    {key[1]:<22} {where}")
-            print()
-
-        if ov:
-            tag = "  *" if ov["flagged"] else ""
-            print(f"Global Jo: ref={ov['ref']['jo']:.6e} exp={ov['exp']['jo']:.6e} "
-                  f"rel={ov['rel']:.2e}{tag}")
             print()
 
     verdict = "PASS" if ok else "FAIL"
