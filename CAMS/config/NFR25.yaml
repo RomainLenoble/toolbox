@@ -86,17 +86,17 @@ aerosols:
   # FA field names used when --mode MMR is selected (direct name mapping,
   # no LIMA particle scaling).
   mmr_faname:
-    - SEASALT1_MMR
-    - SEASALT2_MMR
-    - SEASALT3_MMR
-    - DUST1_MMR
-    - DUST2_MMR
-    - DUST3_MMR
-    - OM1_MMR
-    - OM2_MMR
-    - BC1_MMR
-    - BC2_MMR
-    - SULF_MMR
+    - SEASALT1
+    - SEASALT2
+    - SEASALT3
+    - DUST1
+    - DUST2
+    - DUST3
+    - OM1
+    - OM2
+    - BC1
+    - BC2
+    - SULF
 
 # ---------------------------------------------------------------------------
 # File naming conventions
@@ -105,7 +105,7 @@ naming:
   # Raw CAMS input filenames must start with this prefix ("{geom}" ->
   # domain.name). Adjust the trailing literal (here "2012") to match your
   # data, or remove it to match any year.
-  cams_input_prefix: "CAMS_model"
+  cams_input_prefix: "CAMS_model_level_"
 
   # Regex used to extract the datetime string from raw CAMS filenames, and
   # the corresponding strptime format.
@@ -113,14 +113,14 @@ naming:
   cams_input_datetime_format: "%Y-%m-%d_%H"
 
   # Prefix for CAMS files once interpolated onto the target grid.
-  cams_interp_prefix: "CAMS_model_level_"
+  cams_interp_prefix: "CAMS_model_level_ARO_grid_"
 
   # Prefix of the ERA5 LBC files to merge with the interpolated CAMS files
   # ("{geom}" -> domain.name).
   era5_prefix: "NFR3ERA5LBC"
 
   # Prefix for the final merged output files ("{geom}" -> domain.name).
-  merge_output_prefix: "{geom}_ERA5_CAMS_"
+  merge_output_prefix: "NFR25_ERA5_CAMS_"
 
 # ---------------------------------------------------------------------------
 # Runtime / parallelism
