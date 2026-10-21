@@ -1,0 +1,34 @@
+#=== Location of namelists for toolbox 
+TOOLBOX_DIR=/home/gmgec/mrgi/voldoire/SAVE/arpege/toolbox-arpege
+
+#=== Binaries
+pack=/scratch/climat/packs/CY49T1_clim1.03.IMPIIFC2302DP.y/bin
+EXEPGD=$pack/PGD
+EXEPREP=$pack/PREP
+EXEARP=$pack/MASTERODB
+
+#=== Geometry
+GRID=tl127
+GRIDl=tl127l91r
+
+#=== Dates for surface and atmosphere restarts
+NYEAR=2016
+NMONTH=10
+NDAY=2
+
+#=== Output directory: define SAVEDIR if wanted. Default : $workdir. Prefix, completed by each different job, e.g. : $SAVEDIR/pgd-prep/$expname
+SAVEDIR=$workdir/arome/tests/${GRID}
+
+#=== Namelists
+NAMSFX=$TOOLBOX_DIR/namelist/sfx/nam.sfx.${GRID}r.cy49t1_clim1.03
+NAMSFXpgd=$TOOLBOX_DIR/namelist/sfx/nam.sfx.${GRID}r.pgd.cy49t1_clim1.03
+
+#=== Restarts
+resdir=/scratch/climat/CEDRE/restart/sfx/tl127r/v7
+FA_PGDFILE=$resdir/PGD.AGCM.tl127r.cy49t1_clim1.03.fa
+FA_INITFILE=$resdir/rst.sfx.AGCM.tl127r.cy49t1_clim1.03.19790101.fa
+
+#=== PGD Input Data
+
+#=== + CLIMDIR (filled by job_c923 ; necessary for standalone atm restart creation by job_c927
+CLIMDIR=/scratch/work/haradercoustaue/arome/tests/tl127/c923/cy49t1_clim1.03.tl127r

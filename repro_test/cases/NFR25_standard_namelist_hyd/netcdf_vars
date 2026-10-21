@@ -1,0 +1,16 @@
+# netCDF outputs to compare for this case, one entry per line, "#" comments ok.
+# Files are located under the run's XIOS iox_keep/<INIDATE>/ dir. An entry is
+# matched against the filenames there (see lib/paths.py netcdf_glob):
+#   - a filename fragment (has a ".")   -> matched as "*<entry>"
+#       e.g.  _wap_202001-202002.nc   ->  *_wap_202001-202002.nc
+#   - an explicit glob (* ? [ )         -> used as-is,  e.g.  *wap*.nc
+#   - a bare field tag                  -> "*_arpsfx_<tag>_*.nc",  e.g.  hour_zg
+# The stored reference (non --against runs) is references/<case>/netcdf/<entry>
+# (".nc" appended if the entry has none).
+#
+# wap (vertical velocity) is the more sensitive canary for pure
+# executable/build reproducibility -- a diagnosed difference of larger terms,
+# so it amplifies small floating-point drift. ps / rsds are smoother.
+_ps_202001-202002.nc
+_rsds_202001-202002.nc
+_wap_202001-202002.nc

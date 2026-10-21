@@ -1,0 +1,294 @@
+#!/bin/bash
+#
+#    Syntaxe : sbatch $0 [options] Config_filename
+#               ==============================================================================
+#               Config_filename = file on which inputs (namelists,executables,data) are defined
+#                                 for those which are not defined a default value is use instead
+#                                 if not provided, defaults are used 
+#               ==============================================================================
+#               -p  0 -> no pgd computed
+#                   1 -> pgd computed (default)
+#               -c  config file 
+#               -n  number of MPI tasks for PREP (default: $SLURM_NTASKS, else NPROC_PREP, else 1)
+#               -h/-? print help  
+#               ==============================================================================
+#
+#
+#
+#SBATCH -p shared
+#SBATCH --ntasks 16
+#SBATCH --time=02:00:00
+#SBATCH -J pgd-prep_par
+#SBATCH -o pgd-prep_par.o%j
+#
+set -x
+#
+# Default value for LPGD, overwritten if passed by argument  
+LPGD=1
+
+while getopts "p:c:n:h?" flags ; do
+  case $flags in 
+    p) LPGD=${OPTARG};;
+    c) CONFIGFILE=${OPTARG};;
+    n) NPROC_ARG=${OPTARG};;
+    h|?) echo -e "job_pgd_prep_mpi takes three optional kwargs :\n -c config file \n -p option to create pgd\n -n number of MPI tasks for PREP\ 
+               \n -h show this help "
+         exit 0;;
+    \?) echo "Invalid argument "${flags[@]:$OPTIND:1} 
+        exit 1;; 
+  esac
+done
+
+# Default experiment name, overwritten if passed by argument  
+expname=cy49t1_clim1.03_tl127r
+if [ -s "$CONFIGFILE" ] ; then
+  source $CONFIGFILE
+  expname=$(basename $CONFIGFILE)
+fi
+#
+#=========================================================================
+#===== Default Configuration
+#=========================================================================
+#
+# assuming the job has been lauch from the toolbox/pgd-prep directory
+TOOLBOX_DIR=$(pwd)/..
+#=== Number of MPI tasks for PREP (PGD stays sequential)
+NPROC_PREP=${NPROC_ARG:-${NPROC_PREP:-${SLURM_NTASKS:-1}}}
+#=== Is TRIP involved (default 0=no)
+LTRIP=${LTRIP:-0}
+#
+#=== Binaries
+EXEPGD=${EXEPGD:-/scratch/climat/packs/CY49T1_clim1.03.IMPIIFC2302DP.y/bin/PGD}
+EXEPREP=${EXEPREP:-/scratch/climat/packs/CY49T1_clim1.03.IMPIIFC2302DP.y/bin/PREP}
+EXETRIP=${EXETRIP:-/scratch/climat/packs/CY49T1_clim1.03.IMPIIFC2302DP.y/bin/TRIP_PREP}
+
+#=== Restart dates for PREP and c927 initial conditions 
+NYEAR=${NYEAR:-1970}                
+NMONTH=${NMONTH:-1}
+NDAY=${NDAY:-1}  
+
+#=== Namelists
+NAMSFX=${NAMSFX:-${TOOLBOX_DIR}/namelist/sfx/nam.sfx.tl127r.cy49t1_clim1.03}
+NAMSFXpgd=${NAMSFXpgd:-${TOOLBOX_DIR}/namelist/sfx/nam.sfx.tl127r.pgd.cy49t1_clim1.03}
+TRIPNAML=${TRIPNAML:-${TOOLBOX_DIR}/namelist/riv/nam.riv.05deg.prep.cy49t1_clim1.03}
+OASISNAML=${OASISNAML:-${TOOLBOX_DIR}/namelist/cpl/namcouple.prep} # Empty namelist, just needed for OASIS
+
+#=== Restarts
+FA_PGDFILE=${FA_PGDFILE:-/scratch/climat/CEDRE/restart/sfx/tl127r/v7/PGD.AGCM.tl127r.cy49t1_clim1.03.fa}
+FA_INITFILE=${FA_INITFILE:-/scratch/climat/CEDRE/restart/sfx/tl127r/v7/rst.sfx.AGCM.tl127r.cy49t1_clim1.03.19790101.fa}
+TRIP_INITFILE=${TRIP_INITFILE:-/scratch/climat/CEDRE/restart/riv/riv05/v7/rst.trp.AGCM.riv05.nc}
+CLIMDIR=${CLIMDIR:-/scratch/climat/daac-dev/data/927N}
+
+#=== Output directory
+SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/pgd-prep/$expname
+
+#=== Constants files and directory sources
+ECODIR=${ECODIR:-/scratch/climat/CMIP6/data/sfx}
+ECOFILES_PROTO="${ECODIR}/gmted1km.dir:topo.dir ${ECODIR}/gmted1km.hdr:topo.hdr $ECODIR/ECOCLIMAP_II_EUROP_V2.4.dir:ecoclimap.dir $ECODIR/ECOCLIMAP_II_EUROP_V2.4.hdr:ecoclimap.hdr $ECODIR/LAKE_DEPTH_ECO_II_V2.4.dir:lake_depth.dir $ECODIR/LAKE_DEPTH_ECO_II_V2.4.hdr:lake_depth.hdr $ECODIR/CLAY_HWSD_MOY_v2.dir:clay.dir $ECODIR/CLAY_HWSD_MOY_v2.hdr:clay.hdr $ECODIR/SAND_HWSD_MOY_v2.dir:sand.dir $ECODIR/SAND_HWSD_MOY_v2.hdr:sand.hdr $ECODIR/soc_sub.dir:soc_sub.dir $ECODIR/soc_sub.hdr:soc_sub.hdr $ECODIR/soc_top.dir:soc_top.dir $ECODIR/soc_top.hdr:soc_top.hdr $ECODIR/perm_glo_10km.dir:perm_glo_10km.dir $ECODIR/perm_glo_10km.hdr:perm_glo_10km.hdr ${ECODIR}/ecoclimapI_covers_param.bin:ecoclimapI_covers_param.bin ${ECODIR}/ecoclimapII_eu_covers_param.bin:ecoclimapII_eu_covers_param.bin"
+SFX9DIR=${SFX9DIR:-/scratch/climat/CEDRE/data/sfx/miscellaneaous/v7}
+ECOFILES_PROTO+=" $SFX9DIR/ga2_topo_index.dir:topo_index.dir $SFX9DIR/ga2_topo_index.hdr:topo_index.hdr"
+FRACDIR=$FRACDIR # frac_*.asc - not used for the moment
+TRIPDIR=${TRIPDIR:-/scratch/climat/CEDRE/data/riv/riv05_v7}
+
+ECOFILES=${ECOFILES:-$ECOFILES_PROTO}
+
+
+#== PGD and PREP savefiles
+PGD=${PGD:-$SAVEDIR/PGD.fa}
+PREP=${PREP:-$SAVEDIR/PREP.fa}
+
+#=========================================================================
+#===== End of main configuration elements
+#=========================================================================
+#
+if [ ! -r $SAVEDIR ]; then
+  mkdir -p $SAVEDIR
+fi
+
+[ $LPGD -eq 1 ] && rm -f $SAVEDIR/PGD.fa $SAVEDIR/PREP.fa
+
+#=== Environement
+ulimit -s unlimited
+ulimit -c 0
+module purge 2>/dev/null
+module load intel/oneapi/2023.2 2>/dev/null
+module load mkl/2023.2.0        2>/dev/null
+module load mpi/2021.10.0       2>/dev/null
+module load gcc/14.1.0          2>/dev/null
+source /opt/softs/intel/oneapi/2023.2/mpi/2021.10.0/env/vars.sh
+
+export DR_HOOK=0
+export DR_HOOK_IGNORE_SIGNALS=-1
+export DR_HOOK_SILENT=1
+export DR_HOOK_OPT=prof
+export DR_HOOK_NOT_MPI=0
+export MPL_MBX_SIZE=2048000000
+export EC_PROFILE_HEAP=0
+export EC_MPI_ATEXIT=0
+export OMP_NUM_THREADS=1   # MPI only, no OpenMP
+
+# must have this to run PGD with CY49
+export DR_HOOK_ASSERT_MPI_INITIALIZED=0
+
+# Intel MPI settings (from eclis plugin cy49t1_clim1.i2302.omp.xios.sh)
+export SLURM_CPU_BIND=none
+export FI_PROVIDER=mlx
+export I_MPI_OFI_PROVIDER=mlx
+export I_MPI_FABRICS=shm:ofi
+export I_MPI_SHM=auto
+export I_MPI_HYDRA_IFACE=ib0
+export I_MPI_HYDRA_BRANCH_COUNT=4
+export I_MPI_EXTRA_FILESYSTEM=1
+export I_MPI_EXTRA_FILESYSTEM_FORCE=lustre
+export I_MPI_HYDRA_PMI_CONNECT=alltoall
+export I_MPI_COLL_EXTERNAL=0
+export UCX_TLS=dc,dc_x,shm,self
+export FI_MLX_TLS=$UCX_TLS
+export MKL_CBWR="AUTO,STRICT"   # bit-reproducible MKL whatever the task count
+export I_MPI_DEBUG=5
+export I_MPI_PIN_ORDER=compact
+
+#=========================================================================
+#===== Preparation of execution
+#=========================================================================
+
+#=== TRIP data
+if [[ $LTRIP -ne 0 ]] ; then
+   mkdir -p $SAVEDIR/data_trip
+   mkdir -p $SAVEDIR/data_oasis
+fi
+
+#=== Run directory
+TEMPORAIRE=$TMPDIR
+cd $TEMPORAIRE
+
+if [[ $LTRIP -ne 0 ]] ; then
+   echo " "
+   echo " copie de la namelist trip"
+   cp $TRIPNAML TRIP_OPTIONS.nam
+   cp $OASISNAML namcouple
+fi
+
+#=== Link to important files
+
+for files in $ECOFILES; do 
+    forig=${files%:*} ; ftarg=${files#*:}
+    ln -s $forig $ftarg  
+done 
+
+#=========================================================================
+#===== PGD execution 
+#=========================================================================
+
+if [[ $LPGD -ne 0 ]] ; then
+   echo " !!!!!!!!!! PGD CASE !!!!!!!! "
+   echo " copie des fichiers ecoclimap "
+
+   #=== Copying Namelist
+   echo " copie de la namelist surfex"
+   cp $NAMSFXpgd OPTIONS.nam
+
+   # Modify namelist for user date just in case, this isn't necessary for the pgd step
+   sed -i -e "s/NYEAR.*=.*/NYEAR=${NYEAR},/" -e "s/NMONTH.*=.*/NMONTH=${NMONTH},/" -e "s/NDAY.*=.*/NDAY=${NDAY},/" OPTIONS.nam
+
+   # nat/sea/wat fraction files to follow nemo land/sea mask - if not used in the namelist and not present here -> no pb
+   ln -s  $FRACDIR/frac_???.asc .
+   
+   #for vegtype in `seq 1 1 19` ; do
+   #  [ ${LUYEAR} -gt 0 ] && ln -s ${LULUCCF}/vegtype${vegtype}_1d_60S-90N_cmip6_official_LUH2_GCP2023_lulccf_on_ecoclimap_${LUYEAR}.txt pft${vegtype}.txt
+   #done
+
+   echo " copie et execution du pgd "
+   ln -s $EXEPGD pgd.exe
+   mpiexec.hydra -np 1 ./pgd.exe
+
+   #=== Error catching
+   if [[ $? -ne 0 ]] ; then
+      echo "run pgd failed !!! See in directory: $TEMPORAIRE"
+      cat LISTING_PGD.txt
+      cat OPTIONS.nam
+      exit
+   fi
+
+   #=== Saving outputs
+   if [ ! -d ${PGD%%PGD.fa} ]; then 
+      mkdir -p ${PGD%%PGD.fa}
+   fi 
+   mv PGD.fa $PGD 
+
+  if [[ $DR_HOOK -ne 0 ]] ; then
+     mv drhook.prof.1 $SAVEDIR/drhook.prof_pgd
+     mv LISTING_PGD.txt $SAVEDIR/LISTING_PGD.txt
+  fi
+
+fi
+
+
+#=========================================================================
+#=== PREP execution - with or without TRIP
+#=========================================================================
+
+echo " !!!!!!!!!! PREP CASE !!!!!!!! "
+
+#=== TRIP option
+if [[ $LTRIP -ne 0 ]] ; then
+   ln -s $TRIPDIR/TRIP_PGD_HD.nc .
+   ln -s $TRIPDIR/TRIP_SGAQUI_HD.nc .
+   ln -s $TRIPDIR/TRIP_SGFLOOD_HD.nc .
+   ln -s $TRIP_INITFILE TRIP_INIT_HD.nc
+   
+   ln -s $EXETRIP trip_prep.exe
+fi
+
+#=== Copying restart and PGD
+ln -s $FA_PGDFILE restart_sfx_pgd.fa
+ln -s $FA_INITFILE restart_sfx.fa
+
+ln -s $PGD PGD.fa
+
+#=== Copying ts clim 
+# Arrival climatologies:
+
+cp ${CLIMDIR}/clim_arpege.${GRID}.$(printf "%02.0f" $NMONTH) const.clim
+
+echo " copie et execution du prep sur $NPROC_PREP taches MPI "
+ln -s $EXEPREP prep.exe
+if [[ $LTRIP -ne 0 ]] ; then
+   mpiexec.hydra -print-rank-map -np $NPROC_PREP ./prep.exe : -np 1 ./trip_prep.exe
+else
+   mpiexec.hydra -print-rank-map -np $NPROC_PREP ./prep.exe
+fi
+
+#=== Error catching
+if [[ $? -ne 0 ]] ; then
+  echo "run prep failed !!! See in directory: ${TEMPORAIRE}"
+  cat LISTING_PREP0.txt
+  exit
+fi
+
+#=== Saving output
+if [ ! -d ${PREP%%PREP.fa} ]; then
+      mkdir -p ${PREP%%PREP.fa}
+fi
+
+mv PREP.fa  $PREP
+
+if [[ $LTRIP -ne 0 ]] ; then
+   mv TRIP_PREP.nc $SAVEDIR/.
+   mv TRIP_PARAM.nc $SAVEDIR/data_trip/.
+   mv areas.nc $SAVEDIR/data_oasis/.
+   mv grids.nc $SAVEDIR/data_oasis/.
+   mv masks.nc $SAVEDIR/data_oasis/.
+fi
+
+if [[ $DR_HOOK -ne 0 ]] ; then
+   mv drhook.prof.1 $SAVEDIR/drhook.prof_prep
+   mv LISTING_PREP*.txt $SAVEDIR/
+fi
+
+
+#=========================================================================
+#===== Cleaning and exit
+#=========================================================================
+exit
+

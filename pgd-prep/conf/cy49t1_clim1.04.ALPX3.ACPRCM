@@ -1,0 +1,87 @@
+#=== Directory containing clims for the source grid 
+SRCDIR=/scratch/work/haradercoustaue/DATA/ERA5/clim
+
+#=== Infos for making LBCs and CIs 
+LBCDIR=hendrix:/home/haradercoustaue/DATA/ERA5/restart
+GEOMM=tl399l137R
+LELAM=.FALSE.
+
+#=== Binaries
+pack=/scratch/climat/packs/CY49T1_clim1.04.IMPIIFC2302DP.y/bin
+EXEPGD=$pack/PGD
+EXEPREP=$pack/PREP
+EXEARP=$pack/MASTERODB
+
+#=== Geometry
+GRID=ALPX3
+GRIDl=ALPX3l60
+GRIDdep=tl399r
+
+#=== Dates for surface and atmosphere restarts
+NYEAR=2023
+NMONTH=1
+NDAY=1
+ENDYEAR=2024
+ENDMONTH=12
+
+#=== Output directory: define SAVEDIR if wanted. Default : $workdir. Prefix, completed by each different job, e.g. : $SAVEDIR/pgd-prep/$expname
+SAVEDIR=$workdir/arome/tests/${GRID}
+
+#=== Namelists
+NAMARPc927=/home/gmgec/mrgo/haradercoustaue/AROME49/ALPX3/namelist/atm/conf927_ALPX3l60_cy49t1_clim1.04
+NAMLIN=/home/gmgec/mrgo/haradercoustaue/AROME49/ALPX3/namelist/atm/clim.${GRID}.cy49.lin
+NAMQUAD=/home/gmgec/mrgo/haradercoustaue/AROME49/ALPX3/namelist/atm/clim.${GRID}.cy49.quad
+NAMSFX=/home/gmgec/mrgo/haradercoustaue/AROME49/ALPX3/namelist/sfx/nam_sfx_cy49.nml
+NAMSFXpgd=$NAMSFX ; NAMSFXc923=$NAMSFX ; NAMSFXc927=$NAMSFX
+
+
+#=== Restarts
+resdir=/scratch/climat/CEDRE/restart/sfx/tl127r/v7
+FA_PGDFILE=$resdir/PGD.AGCM.tl127r.cy49t1_clim1.03.fa
+CLIMDIR=/scratch/work/haradercoustaue/arome/tests/ALPX3/c923/cy49t1_clim1.04.ALPX3.ACPRCM
+
+#=== PGD Input Data
+ECODIR=/scratch/climat/APPS/regional_tools/preprocessing/pgd_data/cy49t1_clim-op1.01
+ECOFILES="/home/gmgec/mrgo/haradercoustaue/AROME46/ALPX3_test_epyfix/clim_modif_aude/ecoclimapI_covers_param.v1_6.01.bin:ecoclimapI_covers_param.bin /home/gmgec/mrgo/haradercoustaue/AROME46/ALPX3_test_epyfix/clim_modif_aude/ecoclimapII_eu_covers_param.v1_6.01.bin:ecoclimapII_eu_covers_param.bin /home/gmgec/mrgo/haradercoustaue/AROME46/ALPX3_test_epyfix/clim_modif_aude/ecoclimapII_af_covers_param.v1_6.01.bin:ecoclimapII_af_covers_param.bin"
+ECOFILES+=" ${ECODIR}/orography.gmted2010_07s5.01.dir:topo.dir ${ECODIR}/orography.gmted2010_07s5.01.hdr:topo.hdr"
+ECOFILES+=" ${ECODIR}/ecoclimap_i.v1_8.02.dir:ecoclimap.dir ${ECODIR}/ecoclimap_i.v1_8.02.hdr:ecoclimap.hdr"
+ECOFILES+=" ${ECODIR}/lake_depth_eco_i_v1.7.dir:lake_depth.dir ${ECODIR}/lake_depth_eco_i_v1.7.hdr:lake_depth.hdr"
+ECOFILES+=" ${ECODIR}/hwsd.clay_v2.02.dir:clay.dir ${ECODIR}/hwsd.clay_v2.02.hdr:clay.hdr"
+ECOFILES+=" ${ECODIR}/hwsd.sand_v2.02.dir:sand.dir ${ECODIR}/hwsd.sand_v2.02.hdr:sand.hdr"
+ECOFILES+=" /scratch/climat/CEDRE/data/sfx/miscellaneaous/v7/ga2_topo_index.dir:topo_index.dir /scratch/climat/CEDRE/data/sfx/miscellaneaous/v7/ga2_topo_index.hdr:topo_index.hdr"
+
+#=== Paths for clim data
+FILE_PATH_DBASE=/scratch/climat/APPS/regional_tools/preprocessing/923_data/cy49t1_clim-op1.01
+FILE_PATH_DBASE1=${FILE_PATH_DBASE}/gtopo30_misc.01
+FILE_PATH_DBASE2=${FILE_PATH_DBASE}/giardbazile2000.soil_and_veg.01
+FILE_PATH_DBASE3=${FILE_PATH_DBASE}
+FILE_PATH_DBASE5=${FILE_PATH_DBASE}/avhrr_esa.soil_and_veg.01
+FILE_PATH_DBASE6=${FILE_PATH_DBASE}/arp_reanalysis.soil_clim.01
+FILE_PATH_DBASE8=${FILE_PATH_DBASE}/ugamp.ozone.01.ascii
+FILE_PATH_DBASE9=${FILE_PATH_DBASE}/tegen.aerosols.01.ascii
+
+#=== Files for each case different from ARPEGE/ALADIN
+# Constant files:
+FILE_DBASE3="${FILE_PATH_DBASE3}/usnavy.soil_clim.01.bin:N108_GL"
+FILE_DBASE6_geopot="${FILE_PATH_DBASE6}/arp_reanalysis.surfgeopotential.01.bin:rel_GL"
+# Monthly files: /!\ replace the month number by MM in your original filename !
+FILE_DBASE2_veglai="${FILE_PATH_DBASE2}/giardbazile2000.vegetation.01.bin.mMM:veg_GL ${FILE_PATH_DBASE2}/giardbazile2000.lai.01.bin.mMM:lai_GL"
+FILE_DBASE5_veglai="${FILE_PATH_DBASE5}/avhrr_esa.vegetation.01.bin.mMM:veg_HR ${FILE_PATH_DBASE5}/avhrr_esa.lai.01.bin.mMM:lai_HR"
+FILE_DBASE6_soil="${FILE_PATH_DBASE6}/arp_reanalysis.soil_clim.01.tgz.mMM:arp_reanalysis.soil_clim.01.tgz"
+FILE_DBASE8="${FILE_PATH_DBASE8}/ugamp.ozone.01.ascii.mMM:abc_coef"
+FILE_DBASE9="${FILE_PATH_DBASE9}/tegen.aerosols.01.ascii.mMM:aero_GL"
+
+#=== Handling of spectral orography for AROME
+LAROME=true
+EPY_ORO=$FILE_PATH_DBASE/scripts/epy_oro.py
+
+#=== Regional names for c927
+CNMEXP=FPOS
+SUFF=DEUR
+
+
+#=== PGD file (filled by job_pgd-prep ; necessary for standalone clim creation by job_c923)
+#=== + CLIMDIR (filled by job_c923 ; necessary for standalone atm restart creation by job_c927
+PGD=/scratch/work/haradercoustaue/arome/tests/ALPX3/pgd-prep/cy49t1_clim1.04.ALPX3.ACPRCM/PGD.fa
+PREP=/scratch/work/haradercoustaue/arome/tests/ALPX3/pgd-prep/cy49t1_clim1.04.ALPX3.ACPRCM/PREP.fa
+CLIMDIR=/scratch/work/haradercoustaue/arome/tests/ALPX3/c923/cy49t1_clim1.04.ALPX3.ACPRCM

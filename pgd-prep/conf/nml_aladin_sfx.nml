@@ -1,0 +1,168 @@
+&NAM_FRAC              LECOCLIMAP = T
+/
+&NAM_PGD_GRID          CGRID   = 'CONF PROJ'
+/
+&NAM_CONF_PROJ         XLAT0   = 49.5 ,
+                       XLON0   = 10.5 ,
+                       XRPK    = 0.760405961392965 ,
+/
+&NAM_CONF_PROJ_GRID    XLATCEN =  49.5    ,
+                       XLONCEN =  10.5    ,
+                       NIMAX   = 469       ,
+                       NJMAX   = 469       ,
+                       XDX     = 12500.0 ,
+                       XDY     = 12500.0
+/
+&NAM_PGD_SCHEMES       CNATURE = 'ISBA  '  , 
+                       CSEA    = 'SEAFLX'  , 
+                       CTOWN   = 'NONE  '  , 
+                       CWATER  = 'FLAKE '
+/
+&NAM_PGD_ARRANGE_COVER  LWATER_TO_NATURE = T ,
+                        LTOWN_TO_ROCK    = T
+/
+&NAM_COVER             YCOVER        = 'ecoclimap',
+                       YCOVERFILETYPE= 'DIRECT'   ,
+		       XRM_COVER     = 0.01       ,
+		       XRM_COAST     = 0.99       ,
+		       XRM_LAKE      = 0.05       ,
+		       XRM_SEA       = 0.20       ,
+                       LRM_RIVER     = T          ,
+		       LORCA_GRID    = T          ,
+                       XLAT_ANT      = -79.
+/
+&NAM_ECOCLIMAP2        LCLIM_LAI=T
+/
+&NAM_ZS                YZS           = 'topo'     ,
+                       YZSFILETYPE   = 'DIRECT'
+/
+&NAM_SEABATHY          XUNIF_SEABATHY=0.
+/
+&NAM_ISBA              YCLAY         = 'clay'        ,
+                       YCLAYFILETYPE = 'DIRECT'      ,   
+                       YSAND         = 'sand'        ,
+                       YSANDFILETYPE = 'DIRECT'      ,
+		       YCTI          = 'topo_index'  ,
+		       YCTIFILETYPE  = 'DIRECT'      ,
+		       YSOC_TOP      = 'soc_top'     ,
+		       YSOC_SUB      = 'soc_sub'     ,
+		       YSOCFILETYPE  = 'DIRECT'      ,
+		       YPERM         = 'perm_glo_10km',
+		       YPERMFILETYPE = 'DIRECT'      ,
+                       CPEDO_FUNCTION= 'CH78'        ,
+                       CISBA         = 'DIF'         ,
+                       CPHOTO        = 'NCB'         ,
+                       LTR_ML        = T             ,
+                       NPATCH        = 12            ,
+                       NGROUND_LAYER = 14
+/
+&NAM_DATA_FLAKE        YWATER_DEPTH            = 'lake_depth',
+                       YWATER_DEPTHFILETYPE    = 'DIRECT'    ,
+                       XUNIF_EXTCOEF_WATER     = 0.5         ,
+		       XMAX_DEPTH              = 60.
+/
+&NAM_PREP_SURF_ATM     NYEAR  = 1960,
+                       NMONTH = 1                   ,
+                       NDAY   = 1                   ,
+                       XTIME  = 0.                  ,
+		       CFILEPGD     = 'restart_sfx_pgd' ,
+                       CFILEPGDTYPE = 'FA'          ,
+		       CFILE        = 'restart_sfx',
+                       CFILETYPE    = 'FA'
+/
+&NAM_PREP_SEAFLUX      XSST_UNIF = 280.16      ,
+                       CSEAICE_SCHEME= 'GELATO',
+                       XSSS_UNIF = 0.0         ,
+                       XSIC_UNIF = 0.0
+/
+&NAM_PREP_FLAKE        LCLIM_LAKE = F   ,
+/
+&NAM_PREP_ISBA_CARBON  CRESPSL = 'CNT'
+/
+&NAM_PREP_ISBA_SNOW    CSNOW          = '3-L',
+                       NSNOW_LAYER    = 12
+/
+&NAM_ISBA_SNOWn        LSNOWDRIFT = T
+/
+&NAM_SURF_ATM          LNOSOF        = T        ,
+                       LVERTSHIFT    = F        ,
+		       XVZ0CM        = 1.E-5    ,
+                       XRIMAX        = 0.2      ,    
+                       XDELTA_MAX    = 0.9
+/
+&NAM_SURF_CSTS         XEMISSN       = 0.99  ,
+                       XALBCOEF_TA96 = 0.036 ,
+		       XALBSCA_WAT   = 0.065 ,
+                       XALBWAT       = 0.065 ,
+		       XEMISWAT      = 0.96  ,
+		       XALBWATICE    = 0.40  ,
+		       XALBSEAICE    = 0.71  ,
+		       XEMISWATICE   = 0.97  ,
+                       XHGLA         = 1.0E3 ,
+		       XWSNV         = 2.0
+/
+&NAM_SEAFLUXn          CSEA_FLUX    = 'ECUME6',
+                       CSEA_ALB     = 'RS14'  ,
+                       LPRECIP      = F       ,
+                       LPWG         = F       ,
+		       CINTERPOL_SST= 'LINEAR'
+/
+&NAM_SEAICEn           LDIAG_SEAICE       = T       ,
+                       CINTERPOL_SIC      = 'LINEAR',
+                       XFREEZING_SST      = -0.95   ,
+                       XSI_FLX_DRV        = -20.
+/
+&NAM_FLAKEn            LSEDIMENTS = F     ,
+                       LSKINTEMP  = T     ,
+                       CFLK_FLUX = 'FLAKE',
+                       CFLK_ALB  = 'TA96'
+/
+&NAM_SSOn              CROUGH       = 'Z01D'
+/
+&NAM_ISBAn             CC1DRY       = 'DEF '	,
+                       CSCOND       = 'PL98'	,
+		       CSOILFRZ     = 'LWT'	,
+		       CDIFSFCOND   = 'DEF '	,
+		       CSNOWRES     = 'RIL'	,
+		       CALBEDO      = 'CM13'	,
+                       CROUGH       = 'NONE'    ,
+		       CCPSURF      = 'DRY'     ,
+		       LGLACIER     = T
+/
+&NAM_ISBA_AGSn         LNITRO_DILU  = T         ,
+                       LFIREC       = T         ,
+                       LRIVC        = F         ,
+                       XCNLIM       = -0.036    ,
+                       XMISSFCO2    = 0.0
+/
+&NAM_SGH_ISBAn         CRUNOFF      = 'SGH '	,
+		       CRAIN        = 'SGH '	,
+		       CHORT        = 'SGH '    ,
+                       LSOC         = T
+/
+&NAM_DIAG_SURF_ATMn    LDIAG_CMIP   = T
+/
+&NAM_WRITE_SURF_ATM    LNOWRITE_CANOPY  = T,
+                       LNOWRITE_TEXFILE = T
+/
+&NAM_IO_OFFLINE        CSURF_FILETYPE       = 'FA    ',
+                       NHALO = 0,
+                       LFAGMAP=.TRUE.,
+                       LFAGMAP_IN=.TRUE.,
+/
+&NAM_IO_SURF_ARO       CFILETYPE        = 'FA    ',
+                       CTIMESERIES_FILETYPE = 'XIOS  ',
+                       LALLOW_ADD_DIM= T
+/
+&NAM_OASIS LOASIS=T
+           CMODEL_NAME='surfex'
+/
+&NAM_SFX_LAND_CPL XTSTEP_CPL_LAND = 3600.    ,
+                  CRUNOFF         = 'SXRUNOFF',
+		  CDRAIN          = 'SXDRAIN ',
+		  CWTD            = 'SXWTD'   ,
+		  CFWTD           = 'SXFWTD'  ,
+		  CSRCFLOOD       = 'SXSRCFLD',
+		  CFFLOOD         = 'SXFFLD  ',
+		  CPIFLOOD        = 'SXPIFLD '
+/
