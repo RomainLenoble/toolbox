@@ -3,6 +3,8 @@
 #SBATCH --nodes=1
 #SBATCH --time=02:10:00
 #SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=32
+#SBATCH -p shared
 
 # This assumes the GL toolbox is installed at /home/gmgec/mrgo/lenobler/SAVE/code/GL in your own
 source /home/gmgec/mrgo/lenobler/SAVE/code/GL/config/setenv.belenos
@@ -29,7 +31,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # --- run parameters: EDIT per submission ------------------------------------
 # INPUT/OUTPUT folders and all domain settings live in this config file.
-CONFIG=$SCRIPT_DIR/config/ALPX3.yaml
+CONFIG=$SCRIPT_DIR/config/NFR25.yaml
 # -----------------------------------------------------------------------------
 
 python3 "$SCRIPT_DIR/interpole_current_folder_multiproc.py" \
