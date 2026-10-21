@@ -1,0 +1,13 @@
+name: NFR25_standard_namelist_hyd
+description: >
+  Hydrostatic variant of NFR25_standard_namelist -- ALADIN 49t1_clim1 with
+  SURFEX, grid ALPX12, ERA5 LBCs, INIDATE=ENDDATE=20200102.
+  Dynamics switched NH -> hydrostatic primitive equations (LNHEE=.FALSE.);
+  physics unchanged (deep convection still explicit / resolved).
+# vs NFR25_standard_namelist, only nam_atm_cy49_cas.nml differs:
+#   NAMDYNA   : LNHEE .TRUE.->.FALSE. ; removed LGWADV, NPDVAR, NVDVAR, ND4SYS, LRDBBC
+#   NAMDYN    : removed NSPDLAG, NSVDLAG, RDAMPPD, RDAMPVD (NSITER=1 + LPC_FULL kept)
+#   NAMCVER   : NDLNPR 1 -> 0
+#   NAMGEM    : LNONHYD_GEOM / LNHX_GEOM .TRUE. -> .FALSE.
+#   NEMELBC0A : removed NBICNHX, NBICPD, NBICVD
+# No stored reference yet -- use --repro / --against.

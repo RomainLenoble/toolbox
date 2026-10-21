@@ -236,7 +236,10 @@ bin/diff_NODE a b --growth --plot growth.png         # chaos-aware verdict + plo
   / `TEMPERATURE` / `KINETIC ENERGY`, AVE row by default, per-level with
   `--levels`), each tied to its forecast step and predictor/corrector
   half. Add gridpoint norms with `--gpnorms 'TKE,HUMI.SPECIFI'` or
-  `--gpnorms '*'`; global observation Jo is compared when present.
+  `--gpnorms '*'`. **SURFEX surface norms** (`SFX.<NAME> : AVERAGE MINIMUM
+  MAXIMUM`, dumped at each surface-history write) are compared by default
+  (`--sfx '*'`); narrow with `--sfx 'SFX.TS_WATER,SFX.T2M'` or turn off
+  with `--sfx ''`.
 - Matches values by `(field, step, half, level)`, not by file position --
   if the two runs produced a different number of norm blocks (one crashed
   / diverged early) that's a **STRUCTURAL MISMATCH → FAIL**, not a silent
