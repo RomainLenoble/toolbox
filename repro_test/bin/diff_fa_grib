@@ -121,7 +121,8 @@ def plot_field_diff(fref, r: np.ndarray, e: np.ndarray, label: str,
             lons, lats = fref.geometry.get_lonlat_grid()
             ij = np.unravel_index(np.nanargmax(np.abs(diff)), diff.shape)
             ax.plot(float(np.asarray(lons)[ij]), float(np.asarray(lats)[ij]),
-                    "kx", ms=11, mew=2, transform=ccrs.PlateCarree())
+                    "ko", ms=11, mew=2, alpha=0.5, markerfacecolor='none',
+                    transform=ccrs.PlateCarree())
         except Exception:  # noqa: BLE001
             pass
         fig.savefig(path, dpi=110)
@@ -133,7 +134,7 @@ def plot_field_diff(fref, r: np.ndarray, e: np.ndarray, label: str,
                        cmap="RdBu_r", vmin=-lim, vmax=lim)
         try:
             ij = np.unravel_index(np.nanargmax(np.abs(diff)), diff.shape)
-            ax.plot(ij[1], ij[0], "kx", ms=11, mew=2)
+            ax.plot(ij[1], ij[0], "ko", ms=11, mew=2, alpha=0.5, markerfacecolor='none')
         except Exception:  # noqa: BLE001
             pass
         fig.colorbar(im, ax=ax)

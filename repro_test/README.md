@@ -111,6 +111,12 @@ one.
 ./run_test.py <name> --variant v7.5 --set pack=/home/.../arome_v7.5.../ --repro
 ```
 
+Exemple, test the bit-repro of the default executable with different number of tasks. 
+```
+ ./run_test.py 07_NFR25_full_new_nml  --variant bit_repro --repro --repro-set NODE_ARP=4
+```
+
+
 | check | what | tolerance |
 |---|---|---|
 | **[1/2] bit-reproducible** | `<tag>` vs `<tag>__rep` — does the executable give the same answer run-to-run? | bit-exact (`--rtol 0 --atol 0 --atol-frac 0 --gpnorms '*'`, netCDF/FA-GRIB `--rel-max-diff 0`) |

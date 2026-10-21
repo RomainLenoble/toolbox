@@ -94,7 +94,7 @@ ATM_NUDLBC_PER=1
 ATM_NUDLBC_MACH=belenos
 
 # restart adn PGD
-ATMREST=${ATM_NUDLBC_DATA_DIR}/${ATM_NUDLBC_LS}${INIDATE}.0000
+ATMREST=/scratch/work/lenobler/DATA/ALPX3/restart/sfx/corneille_simu/RENFR-3.00202001
 LSMREST=/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.NFR.cy49_202001010000.fa
 LSMPGD=/scratch/work/lenobler/DATA/NFR25/PGD.fa
 
@@ -133,13 +133,13 @@ YEAR_SST=SCEN_1850_2100 ; FORSST=$climsst/sst_CNRM-ESM2-1-NFR25_YYYYMM.ieee
 ########################################################
 #               XIOS / FULLPOS
 ########################################################
-LIOS=1
-LATMIOS=1
-LLSMIOS=1
-LATMOUT=1
-KEEPFT=1
-LIOXOUT=1
-LIOXKEEP=1  # to keep data on belenos
+LIOS=0
+LATMIOS=0
+LLSMIOS=0
+LATMOUT=0
+KEEPFT=0
+LIOXOUT=0
+LIOXKEEP=0  # to keep data on belenos
 #LIOXSAFE=0  # to save data on hendrix
 
 src_xios="/home/gmgec/mrgo/lenobler/SAVE/ECLIS/00_param/xios/02_xios_gfl"
@@ -187,7 +187,7 @@ ELAPSFRONT=08:00:00 ; MEMFRONT=4Gb
 ELAPS=0:30:00 ; MEM=240Gb
 
 
-NPROC_IOS=6        #  total number of XIOS ranks
+NPROC_IOS=0        #  total number of XIOS ranks
 NODES_IOS_EXCL=0    # number of nodes hosting exclusive XIOS servers
 NODES_IOS_SHAR=0    # number of nodes sharing  XIOS servers
 
