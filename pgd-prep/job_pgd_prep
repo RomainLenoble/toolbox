@@ -19,6 +19,7 @@
 #SBATCH --time=02:00:00
 #SBATCH -J pgd-prep_climat
 #SBATCH -o pgd-prep_climat.o%j
+#SBATCH --mem=240Gb
 #
 set -x
 #
@@ -105,6 +106,7 @@ fi
 
 #=== Environement
 ulimit -s unlimited
+ulimit -c 0
 module purge
 module load intel/oneapi/2023.2 compiler/2023.2.0 mkl/2023.2.0 mpi/2021.10.0 gcc/14.1.0 2>/dev/null
 

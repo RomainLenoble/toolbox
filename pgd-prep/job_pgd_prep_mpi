@@ -20,6 +20,8 @@
 #SBATCH --time=02:00:00
 #SBATCH -J pgd-prep_par
 #SBATCH -o pgd-prep_par.o%j
+# #SBATCH -p huge512
+
 #
 set -x
 #
@@ -241,7 +243,7 @@ if [[ $LTRIP -ne 0 ]] ; then
 fi
 
 #=== Copying restart and PGD
-ln -s $FA_PGDFILE restart_sfx_pgd.fa
+ln -s $FA_PGDFILE restart_sfx_pdg.fa
 ln -s $FA_INITFILE restart_sfx.fa
 
 ln -s $PGD PGD.fa
