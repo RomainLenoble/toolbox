@@ -200,7 +200,8 @@ if [[ $LPGD -ne 0 ]] ; then
 
    echo " copie et execution du pgd "
    ln -s $EXEPGD pgd.exe
-   mpiexec.hydra -np 1 ./pgd.exe
+   # PGD runs exactly as in job_pgd_prep: sequential, no MPI launcher, no MPI in DrHook
+   DR_HOOK_NOT_MPI=1 ./pgd.exe
 
    #=== Error catching
    if [[ $? -ne 0 ]] ; then
