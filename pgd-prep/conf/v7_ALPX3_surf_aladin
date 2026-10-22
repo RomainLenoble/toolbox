@@ -1,16 +1,15 @@
 #=== Binaries
-pack=/scratch/work/haradercoustaue/packs/CY49T1_clim1.04.debug.IMPIIFC2302DP.y/bin
-EXEPGD=$pack/PGD
-pack=/home/gmgec/mrgo/lenobler/packs/arome_v7.4_dev.IMPIIFC2302DP.y/bin/
+pack=/home/gmgec/mrgo/lenobler/packs/arome_v7.4.2.IMPIIFC2302DP.y/bin/
 EXEPREP=$pack/PREP
 EXEARP=$pack/MASTERODB
+EXEPGD=$pack/PGD
 
 #=== Geometry
 GRID=NFR2.5
 GRIDl=NFR2.5l60
 
 #=== Output directory: define SAVEDIR if wanted. Default : $workdir. Prefix, completed by each different job, e.g. : $SAVEDIR/pgd-prep/$expname
-SAVEDIR=/scratch/work/lenobler/DATA/dev/ALPX3_flake_aladin/
+SAVEDIR=/scratch/work/lenobler/DATA/dev/ALPX3_alex/
 
 #=== Namelists
 NAMQUAD=/home/gmgec/mrgo/haradercoustaue/SAVE/namelist/atm/clim.${GRID}.cy49.quad
@@ -25,9 +24,8 @@ NAMSFXpgd=$NAMSFX ; NAMSFXc923=$NAMSFX ; NAMSFXc927=$NAMSFX
 CLIMDIR=/scratch/work/haradercoustaue/arome/tests/NFR2.5/c923/cy49t1_clim1.04.NFR25.ACPRCM
 
 resdir=/scratch/work/lenobler/DATA/dev/aladin
-FA_PGDFILE=$resdir/PDG_new.fa/PGD.fa
-FA_PGDFILE=$resdir/PGD.fa
-FA_INITFILE=$resdir/EUC12-CMIP6-ERA5.rst.sfx.P20200101
+FA_PGDFILE=$resdir/PGD_fixed.fa
+FA_INITFILE=$resdir/EUC12-CMIP6-ERA5.rst.sfx.P20200901
 
 
 #=== PGD Input Data
