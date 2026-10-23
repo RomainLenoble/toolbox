@@ -16,7 +16,7 @@
 #
 #
 #SBATCH -p shared
-#SBATCH --ntasks 16
+#SBATCH --ntasks 8
 #SBATCH --time=10:00:00
 #SBATCH -J pgd-prep_mpi
 #SBATCH -o pgd-prep_mpi.o%j
@@ -81,6 +81,13 @@ FA_PGDFILE=${FA_PGDFILE:-/scratch/climat/CEDRE/restart/sfx/tl127r/v7/PGD.AGCM.tl
 FA_INITFILE=${FA_INITFILE:-/scratch/climat/CEDRE/restart/sfx/tl127r/v7/rst.sfx.AGCM.tl127r.cy49t1_clim1.03.19790101.fa}
 TRIP_INITFILE=${TRIP_INITFILE:-/scratch/climat/CEDRE/restart/riv/riv05/v7/rst.trp.AGCM.riv05.nc}
 CLIMDIR=${CLIMDIR:-/scratch/climat/daac-dev/data/927N}
+
+#=== Pre-fill of the source restart (so that PREP has no field left to extrapolate far away)
+# FILL_RESTART=1 runs tool/fill_sfx_patch.py on FA_INITFILE; FA_INITFILE itself is never modified.
+# FILL_ARGS are the options passed to the tool (--fill PATCH:DONOR, --vertical NAME, --constant NAME=VALUE)
+FILL_RESTART=${FILL_RESTART:-0}
+FILL_ARGS=${FILL_ARGS:---fill 6:4 --fill 3:2 --fill 9:8 --fill 11:10 --vertical WG --vertical WGI --constant ASN_VEG=0.5}
+PYTHON=${PYTHON:-python3}
 
 #=== Output directory
 SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/pgd-prep/$expname
@@ -245,7 +252,11 @@ fi
 
 #=== Copying restart and PGD
 ln -s $FA_PGDFILE restart_sfx_pdg.fa
-ln -s $FA_INITFILE restart_sfx.fa
+if [[ $FILL_RESTART -ne 0 ]] ; then
+   $PYTHON -I $TOOLBOX_DIR/tool/fill_sfx_patch.py $FA_INITFILE restart_sfx.fa $FILL_ARGS || exit 1
+else
+   ln -s $FA_INITFILE restart_sfx.fa
+fi
 
 ln -s $PGD PGD.fa
 

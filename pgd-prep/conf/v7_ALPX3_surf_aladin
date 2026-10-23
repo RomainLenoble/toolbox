@@ -1,8 +1,14 @@
 #=== Binaries
 pack=/home/gmgec/mrgo/lenobler/packs/arome_v7.4.2.IMPIIFC2302DP.y/bin/
-EXEPREP=$pack/PREP
+# PREP built with pgd-prep/patches/read_extern_isba_donor_depth.patch (soil depth of patches absent in the source);
+# set PACK_PREP to the bin directory of that build, otherwise the unpatched PREP of $pack is used
+PACK_PREP=${PACK_PREP:-$pack}
+EXEPREP=$PACK_PREP/PREP
 EXEARP=$pack/MASTERODB
 EXEPGD=$pack/PGD
+
+#=== Number of MPI tasks for PREP (16 tasks used more than 240 GB; -n on the command line overrides)
+NPROC_PREP=8
 
 #=== Geometry
 GRID=NFR2.5
