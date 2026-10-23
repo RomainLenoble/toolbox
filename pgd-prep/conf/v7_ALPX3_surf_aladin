@@ -7,8 +7,9 @@ EXEPREP=$PACK_PREP/PREP
 EXEARP=$pack/MASTERODB
 EXEPGD=$pack/PGD
 
-#=== Number of MPI tasks for PREP (16 tasks used more than 240 GB; -n on the command line overrides)
-NPROC_PREP=8
+#=== Number of MPI tasks for PREP (-n on the command line overrides). 1 until the PREP binary is checked to be built with MPI:
+# with 16 tasks the NFR run behaved as 16 independent serial PREPs (241 GB in total, 15 of them failed to create PREP.fa)
+NPROC_PREP=1
 
 #=== Geometry
 GRID=NFR2.5

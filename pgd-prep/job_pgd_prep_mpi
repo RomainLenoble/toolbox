@@ -1,3 +1,17 @@
+#=== Error catching
+# A run can fail on some tasks after PREP.fa has been written (e.g. several tasks creating
+# PREP.fa); it is a success when PREP wrote its end-of-run message and the file exists.
+PREP_STATUS=$?
+if [[ $PREP_STATUS -ne 0 ]] ; then
+  if [[ -s PREP.fa ]] && grep -q "PREP ENDS CORRECTLY" LISTING_PREP0.txt ; then
+    echo "WARNING: mpiexec returned $PREP_STATUS but PREP ended correctly, check the log"
+  else
+    echo "run prep failed !!! See in directory: ${TEMPORAIRE}"
+    cat LISTING_PREP0.txt
+    exit
+  fi
+fi
+
 #!/bin/bash
 #
 #    Syntaxe : sbatch $0 [options] Config_filename
@@ -16,7 +30,7 @@
 #
 #
 #SBATCH -p shared
-#SBATCH --ntasks 8
+#SBATCH --ntasks 1
 #SBATCH --time=10:00:00
 #SBATCH -J pgd-prep_mpi
 #SBATCH -o pgd-prep_mpi.o%j
