@@ -17,9 +17,9 @@
 #SBATCH -p shared
 #SBATCH --ntasks 1
 #SBATCH --time=02:00:00
-#SBATCH -J pgd-prep_climat
-#SBATCH -o pgd-prep_climat.o%j
-#SBATCH --mem=240Gb
+#SBATCH -J pgd-prep_
+#SBATCH -o pgd-prep_.o%j
+#SBATCH --mem=240G
 #
 set -x
 #
@@ -155,13 +155,13 @@ done
 #===== PGD execution 
 #=========================================================================
 
+#=== Copying Namelist
+echo " copie de la namelist surfex"
+cp $NAMSFXpgd OPTIONS.nam
+
 if [[ $LPGD -ne 0 ]] ; then
    echo " !!!!!!!!!! PGD CASE !!!!!!!! "
    echo " copie des fichiers ecoclimap "
-
-   #=== Copying Namelist
-   echo " copie de la namelist surfex"
-   cp $NAMSFXpgd OPTIONS.nam
 
    # Modify namelist for user date just in case, this isn't necessary for the pgd step
    sed -i -e "s/NYEAR.*=.*/NYEAR=${NYEAR},/" -e "s/NMONTH.*=.*/NMONTH=${NMONTH},/" -e "s/NDAY.*=.*/NDAY=${NDAY},/" OPTIONS.nam
@@ -216,7 +216,7 @@ if [[ $LTRIP -ne 0 ]] ; then
 fi
 
 #=== Copying restart and PGD
-ln -s $FA_PGDFILE restart_sfx_pgd.fa
+ln -s $FA_PGDFILE restart_sfx_pdg.fa
 ln -s $FA_INITFILE restart_sfx.fa
 
 ln -s $PGD PGD.fa

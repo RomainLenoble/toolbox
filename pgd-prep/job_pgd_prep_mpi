@@ -17,9 +17,10 @@
 #
 #SBATCH -p shared
 #SBATCH --ntasks 16
-#SBATCH --time=02:00:00
-#SBATCH -J pgd-prep_par
-#SBATCH -o pgd-prep_par.o%j
+#SBATCH --time=10:00:00
+#SBATCH -J pgd-prep_mpi
+#SBATCH -o pgd-prep_mpi.o%j
+#SBATCH --mem=240G
 # #SBATCH -p huge512
 
 #
@@ -182,13 +183,13 @@ done
 #===== PGD execution 
 #=========================================================================
 
+#=== Copying Namelist
+echo " copie de la namelist surfex"
+cp $NAMSFXpgd OPTIONS.nam
+
 if [[ $LPGD -ne 0 ]] ; then
    echo " !!!!!!!!!! PGD CASE !!!!!!!! "
    echo " copie des fichiers ecoclimap "
-
-   #=== Copying Namelist
-   echo " copie de la namelist surfex"
-   cp $NAMSFXpgd OPTIONS.nam
 
    # Modify namelist for user date just in case, this isn't necessary for the pgd step
    sed -i -e "s/NYEAR.*=.*/NYEAR=${NYEAR},/" -e "s/NMONTH.*=.*/NMONTH=${NMONTH},/" -e "s/NDAY.*=.*/NDAY=${NDAY},/" OPTIONS.nam
@@ -202,8 +203,7 @@ if [[ $LPGD -ne 0 ]] ; then
 
    echo " copie et execution du pgd "
    ln -s $EXEPGD pgd.exe
-   # PGD runs exactly as in job_pgd_prep: sequential, no MPI launcher, no MPI in DrHook
-   DR_HOOK_NOT_MPI=1 ./pgd.exe
+   ./pgd.exe
 
    #=== Error catching
    if [[ $? -ne 0 ]] ; then
