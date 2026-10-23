@@ -32,7 +32,7 @@ CLIMDIR=/scratch/work/haradercoustaue/arome/tests/NFR2.5/c923/cy49t1_clim1.04.NF
 
 resdir=/scratch/work/lenobler/DATA/dev/aladin
 FA_PGDFILE=$resdir/PGD_fixed.fa
-FA_INITFILE=$resdir/EUC12-CMIP6-ERA5.rst.sfx.P20200901_fixed_vfilled_asn
+FA_INITFILE=$resdir/EUC12-CMIP6-ERA5.rst.sfx.P20200901_fixed
 
 
 #=== PGD Input Data

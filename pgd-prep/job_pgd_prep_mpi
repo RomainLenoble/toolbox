@@ -1,17 +1,3 @@
-#=== Error catching
-# A run can fail on some tasks after PREP.fa has been written (e.g. several tasks creating
-# PREP.fa); it is a success when PREP wrote its end-of-run message and the file exists.
-PREP_STATUS=$?
-if [[ $PREP_STATUS -ne 0 ]] ; then
-  if [[ -s PREP.fa ]] && grep -q "PREP ENDS CORRECTLY" LISTING_PREP0.txt ; then
-    echo "WARNING: mpiexec returned $PREP_STATUS but PREP ended correctly, check the log"
-  else
-    echo "run prep failed !!! See in directory: ${TEMPORAIRE}"
-    cat LISTING_PREP0.txt
-    exit
-  fi
-fi
-
 #!/bin/bash
 #
 #    Syntaxe : sbatch $0 [options] Config_filename
@@ -101,10 +87,10 @@ CLIMDIR=${CLIMDIR:-/scratch/climat/daac-dev/data/927N}
 # FILL_ARGS are the options passed to the tool (--fill PATCH:DONOR, --vertical NAME, --constant NAME=VALUE)
 FILL_RESTART=${FILL_RESTART:-0}
 FILL_ARGS=${FILL_ARGS:---fill 6:4 --fill 3:2 --fill 9:8 --fill 11:10 --vertical WG --vertical WGI --constant ASN_VEG=0.5}
-PYTHON=${PYTHON:-python3}
+PYTHON=${PYTHON:~/miniforge3/bin/python3}
 
 #=== Output directory
-SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/pgd-prep/$expname
+SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/
 
 #=== Constants files and directory sources
 ECODIR=${ECODIR:-/scratch/climat/CMIP6/data/sfx}
@@ -288,10 +274,17 @@ else
 fi
 
 #=== Error catching
-if [[ $? -ne 0 ]] ; then
-  echo "run prep failed !!! See in directory: ${TEMPORAIRE}"
-  cat LISTING_PREP0.txt
-  exit
+# A run can fail on some tasks after PREP.fa has been written (e.g. several tasks creating
+# PREP.fa); it is a success when PREP wrote its end-of-run message and the file exists.
+PREP_STATUS=$?
+if [[ $PREP_STATUS -ne 0 ]] ; then
+  if [[ -s PREP.fa ]] && grep -q "PREP ENDS CORRECTLY" LISTING_PREP0.txt ; then
+    echo "WARNING: mpiexec returned $PREP_STATUS but PREP ended correctly, check the log"
+  else
+    echo "run prep failed !!! See in directory: ${TEMPORAIRE}"
+    cat LISTING_PREP0.txt
+    exit
+  fi
 fi
 
 #=== Saving output

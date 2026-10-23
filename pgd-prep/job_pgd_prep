@@ -77,7 +77,7 @@ TRIP_INITFILE=${TRIP_INITFILE:-/scratch/climat/CEDRE/restart/riv/riv05/v7/rst.tr
 CLIMDIR=${CLIMDIR:-/scratch/climat/daac-dev/data/927N}
 
 #=== Output directory
-SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/pgd-prep/$expname
+SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/
 
 #=== Constants files and directory sources
 ECODIR=${ECODIR:-/scratch/climat/CMIP6/data/sfx}

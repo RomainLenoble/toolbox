@@ -9,7 +9,7 @@ GRID=NFR2.5
 GRIDl=NFR2.5l60
 
 #=== Output directory: define SAVEDIR if wanted. Default : $workdir. Prefix, completed by each different job, e.g. : $SAVEDIR/pgd-prep/$expname
-SAVEDIR=/scratch/work/lenobler/DATA/dev/NFR_alex/
+SAVEDIR=/scratch/work/lenobler/DATA/dev/NFR_alex_01/
 
 #=== Namelists
 NAMARPc927=/home/gmgec/mrgo/haradercoustaue/AROME49/NFR2.5/toolbox-arpege/namelist/atm/conf927_NFR3l60_cy49t1_clim1.04
