@@ -1,5 +1,11 @@
 #!/bin/bash
 #
+#    job_pgd_prep_fix: same as job_pgd_prep (PGD + PREP), plus optional pre-processing of the source
+#    PGD and restart with the python tools of toolbox/tool:
+#      FIX_ENCODING=1  fix_sfx_fa_encoding.py (v8 files -> v9 encoding, BUG=0)
+#      FILL_RESTART=1  fill_sfx_patch.py (fill the empty patches of the source restart)
+#    PGD and PREP are NOT run with MPI (the PREP build is not MPI: N tasks = N independent PREPs).
+#
 #    Syntaxe : sbatch $0 [options] Config_filename
 #               ==============================================================================
 #               Config_filename = file on which inputs (namelists,executables,data) are defined
@@ -9,7 +15,6 @@
 #               -p  0 -> no pgd computed
 #                   1 -> pgd computed (default)
 #               -c  config file 
-#               -n  number of MPI tasks for PREP (default: $SLURM_NTASKS, else NPROC_PREP, else 1)
 #               -h/-? print help  
 #               ==============================================================================
 #
@@ -18,8 +23,8 @@
 #SBATCH -p shared
 #SBATCH --ntasks 1
 #SBATCH --time=10:00:00
-#SBATCH -J pgd-prep_mpi
-#SBATCH -o pgd-prep_mpi.o%j
+#SBATCH -J pgd-prep_fix
+#SBATCH -o pgd-prep_fix.o%j
 #SBATCH --mem=240G
 # #SBATCH -p huge512
 
@@ -29,13 +34,11 @@ set -x
 # Default value for LPGD, overwritten if passed by argument  
 LPGD=1
 
-while getopts "p:c:n:h?" flags ; do
+while getopts "p:c:h?" flags ; do
   case $flags in 
     p) LPGD=${OPTARG};;
     c) CONFIGFILE=${OPTARG};;
-    n) NPROC_ARG=${OPTARG};;
-    h|?) echo -e "job_pgd_prep_mpi takes three optional kwargs :\n -c config file \n -p option to create pgd\n -n number of MPI tasks for PREP\ 
-               \n -h show this help "
+    h|?) echo -e "job_pgd_prep_fix takes two optional kwargs :\n -c config file \n -p option to create pgd\n -h show this help\n (FIX_ENCODING=1 and FILL_RESTART=1 in the config pre-process the source files)"
          exit 0;;
     \?) echo "Invalid argument "${flags[@]:$OPTIND:1} 
         exit 1;; 
@@ -55,8 +58,6 @@ fi
 #
 # assuming the job has been lauch from the toolbox/pgd-prep directory
 TOOLBOX_DIR=$(pwd)/..
-#=== Number of MPI tasks for PREP (PGD stays sequential)
-NPROC_PREP=${NPROC_ARG:-${NPROC_PREP:-${SLURM_NTASKS:-1}}}
 #=== Is TRIP involved (default 0=no)
 LTRIP=${LTRIP:-0}
 #
@@ -87,7 +88,10 @@ CLIMDIR=${CLIMDIR:-/scratch/climat/daac-dev/data/927N}
 # FILL_ARGS are the options passed to the tool (--fill PATCH:DONOR, --vertical NAME, --constant NAME=VALUE)
 FILL_RESTART=${FILL_RESTART:-0}
 FILL_ARGS=${FILL_ARGS:---fill 6:4 --fill 3:2 --fill 9:8 --fill 11:10 --vertical WG --vertical WGI --constant ASN_VEG=0.5}
-PYTHON=${PYTHON:~/miniforge3/bin/python3}
+# FIX_ENCODING=1 first converts FA_PGDFILE and FA_INITFILE (SURFEX v8 files) with tool/fix_sfx_fa_encoding.py
+# (needed when they were not fixed beforehand); the original files are never modified.
+FIX_ENCODING=${FIX_ENCODING:-0}
+PYTHON=${PYTHON:-$HOME/miniforge3/bin/python3}
 
 #=== Output directory
 SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/
@@ -135,7 +139,7 @@ export DR_HOOK_NOT_MPI=0
 export MPL_MBX_SIZE=2048000000
 export EC_PROFILE_HEAP=0
 export EC_MPI_ATEXIT=0
-export OMP_NUM_THREADS=1   # MPI only, no OpenMP
+export OMP_NUM_THREADS=1
 
 # must have this to run PGD with CY49
 export DR_HOOK_ASSERT_MPI_INITIALIZED=0
@@ -251,12 +255,22 @@ if [[ $LTRIP -ne 0 ]] ; then
 fi
 
 #=== Copying restart and PGD
-ln -s $FA_PGDFILE restart_sfx_pdg.fa
-if [[ $FILL_RESTART -ne 0 ]] ; then
-   $PYTHON -I $TOOLBOX_DIR/tool/fill_sfx_patch.py $FA_INITFILE restart_sfx.fa $FILL_ARGS || exit 1
-else
-   ln -s $FA_INITFILE restart_sfx.fa
+# Pre-processing of the source PGD and restart: encoding fix and fill (python tools)
+PGD_SRC=$FA_PGDFILE
+INIT_SRC=$FA_INITFILE
+if [[ $FIX_ENCODING -ne 0 ]] ; then
+   $PYTHON $TOOLBOX_DIR/tool/fix_sfx_fa_encoding.py $FA_PGDFILE restart_sfx_pdg_fixed.fa --set-bug 0 || exit 1
+   PGD_SRC=restart_sfx_pdg_fixed.fa
+   $PYTHON $TOOLBOX_DIR/tool/fix_sfx_fa_encoding.py $FA_INITFILE restart_sfx_fixed.fa --set-bug 0 || exit 1
+   INIT_SRC=restart_sfx_fixed.fa
 fi
+if [[ $FILL_RESTART -ne 0 ]] ; then
+   $PYTHON $TOOLBOX_DIR/tool/fill_sfx_patch.py $INIT_SRC restart_sfx_filled.fa $FILL_ARGS || exit 1
+   [[ $INIT_SRC == restart_sfx_fixed.fa ]] && rm -f restart_sfx_fixed.fa
+   INIT_SRC=restart_sfx_filled.fa
+fi
+ln -s $PGD_SRC restart_sfx_pdg.fa
+ln -s $INIT_SRC restart_sfx.fa
 
 ln -s $PGD PGD.fa
 
@@ -265,21 +279,21 @@ ln -s $PGD PGD.fa
 
 cp ${CLIMDIR}/clim_arpege.${GRID}.$(printf "%02.0f" $NMONTH) const.clim
 
-echo " copie et execution du prep sur $NPROC_PREP taches MPI "
+echo " copie et execution du prep (sequentiel) "
 ln -s $EXEPREP prep.exe
 if [[ $LTRIP -ne 0 ]] ; then
-   mpiexec.hydra -print-rank-map -np $NPROC_PREP ./prep.exe : -np 1 ./trip_prep.exe
+   mpiexec.hydra -print-rank-map -np 1 ./prep.exe : -np 1 ./trip_prep.exe
 else
-   mpiexec.hydra -print-rank-map -np $NPROC_PREP ./prep.exe
+   ./prep.exe
 fi
+PREP_STATUS=$?
 
 #=== Error catching
-# A run can fail on some tasks after PREP.fa has been written (e.g. several tasks creating
-# PREP.fa); it is a success when PREP wrote its end-of-run message and the file exists.
-PREP_STATUS=$?
+# A run can return an error after PREP.fa has been written; it is a success when PREP wrote
+# its end-of-run message and the file exists.
 if [[ $PREP_STATUS -ne 0 ]] ; then
   if [[ -s PREP.fa ]] && grep -q "PREP ENDS CORRECTLY" LISTING_PREP0.txt ; then
-    echo "WARNING: mpiexec returned $PREP_STATUS but PREP ended correctly, check the log"
+    echo "WARNING: PREP returned $PREP_STATUS but PREP ended correctly, check the log"
   else
     echo "run prep failed !!! See in directory: ${TEMPORAIRE}"
     cat LISTING_PREP0.txt
