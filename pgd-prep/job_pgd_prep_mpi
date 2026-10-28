@@ -87,7 +87,10 @@ CLIMDIR=${CLIMDIR:-/scratch/climat/daac-dev/data/927N}
 # FILL_ARGS are the options passed to the tool (--fill PATCH:DONOR, --vertical NAME, --constant NAME=VALUE)
 FILL_RESTART=${FILL_RESTART:-0}
 FILL_ARGS=${FILL_ARGS:---fill 6:4 --fill 3:2 --fill 9:8 --fill 11:10 --vertical WG --vertical WGI --constant ASN_VEG=0.5}
-PYTHON=${PYTHON:~/miniforge3/bin/python3}
+# FIX_ENCODING=1 first converts FA_PGDFILE and FA_INITFILE (SURFEX v8 files) with tool/fix_sfx_fa_encoding.py
+# (needed when they were not fixed beforehand); the original files are never modified.
+FIX_ENCODING=${FIX_ENCODING:-0}
+PYTHON=${PYTHON:-$HOME/miniforge3/bin/python3}
 
 #=== Output directory
 SAVEDIR=${SAVEDIR:-$workdir} ; SAVEDIR=$SAVEDIR/
@@ -251,12 +254,22 @@ if [[ $LTRIP -ne 0 ]] ; then
 fi
 
 #=== Copying restart and PGD
-ln -s $FA_PGDFILE restart_sfx_pdg.fa
-if [[ $FILL_RESTART -ne 0 ]] ; then
-   $PYTHON -I $TOOLBOX_DIR/tool/fill_sfx_patch.py $FA_INITFILE restart_sfx.fa $FILL_ARGS || exit 1
-else
-   ln -s $FA_INITFILE restart_sfx.fa
+# Pre-processing of the source PGD and restart: encoding fix and fill (python tools)
+PGD_SRC=$FA_PGDFILE
+INIT_SRC=$FA_INITFILE
+if [[ $FIX_ENCODING -ne 0 ]] ; then
+   $PYTHON $TOOLBOX_DIR/tool/fix_sfx_fa_encoding.py $FA_PGDFILE restart_sfx_pdg_fixed.fa --set-bug 0 || exit 1
+   PGD_SRC=restart_sfx_pdg_fixed.fa
+   $PYTHON $TOOLBOX_DIR/tool/fix_sfx_fa_encoding.py $FA_INITFILE restart_sfx_fixed.fa --set-bug 0 || exit 1
+   INIT_SRC=restart_sfx_fixed.fa
 fi
+if [[ $FILL_RESTART -ne 0 ]] ; then
+   $PYTHON $TOOLBOX_DIR/tool/fill_sfx_patch.py $INIT_SRC restart_sfx_filled.fa $FILL_ARGS || exit 1
+   [[ $INIT_SRC == restart_sfx_fixed.fa ]] && rm -f restart_sfx_fixed.fa
+   INIT_SRC=restart_sfx_filled.fa
+fi
+ln -s $PGD_SRC restart_sfx_pdg.fa
+ln -s $INIT_SRC restart_sfx.fa
 
 ln -s $PGD PGD.fa
 
