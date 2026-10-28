@@ -9,13 +9,15 @@ GRID=NFR2.5
 GRIDl=NFR2.5l60
 
 #=== Output directory: define SAVEDIR if wanted. Default : $workdir. Prefix, completed by each different job, e.g. : $SAVEDIR/pgd-prep/$expname
-SAVEDIR=/scratch/work/lenobler/DATA/dev/NFR_alex_01/
+SAVEDIR=/scratch/work/lenobler/DATA/dev/NFR_alex_no_MEB/
 
 #=== Namelists
 NAMARPc927=/home/gmgec/mrgo/haradercoustaue/AROME49/NFR2.5/toolbox-arpege/namelist/atm/conf927_NFR3l60_cy49t1_clim1.04
 NAMLIN=/home/gmgec/mrgo/haradercoustaue/SAVE/namelist/atm/clim.${GRID}.cy49.lin
 NAMQUAD=/home/gmgec/mrgo/haradercoustaue/SAVE/namelist/atm/clim.${GRID}.cy49.quad
+
 NAMSFX=/home/gmgec/mrgo/lenobler/SAVE/ECLIS/39_NFR_ref_V7.4.2_new_var/nam_sfx_cy49.nml
+NAMSFX=/home/gmgec/mrgo/lenobler/SAVE/ECLIS/54_NFR_dev_no_MEB/nam_sfx_cy49.nml
 
 
 NAMSFXpgd=$NAMSFX ; NAMSFXc923=$NAMSFX ; NAMSFXc927=$NAMSFX

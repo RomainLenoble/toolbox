@@ -103,6 +103,10 @@ def main():
             continue
         words = lfi_read(unit, name, records[name][0])
         values = words.astype(np.int64).view(np.float64)
+        magnitude = np.abs(values)
+        if np.any((magnitude > 0) & (magnitude < 1e-300)):
+            # integers already stored as int64 read as denormal floats: record already converted
+            continue
         if not np.all(np.isfinite(values)) or np.any(np.abs(values - np.round(values)) > 1e-9):
             print('skipped (not integral): %s' % name)
             continue
