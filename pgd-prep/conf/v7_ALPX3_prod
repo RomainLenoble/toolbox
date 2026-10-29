@@ -20,7 +20,7 @@ SAVEDIR=/scratch/work/lenobler/DATA/dev/ALPX3_alex_prod/
 
 #=== Namelists
 NAMQUAD=/home/gmgec/mrgo/haradercoustaue/SAVE/namelist/atm/clim.${GRID}.cy49.quad
-NAMSFX=/home/gmgec/mrgo/lenobler/SAVE/ECLIS/38_ALPX3_ref_v7.4.2/nam_sfx_cy49.nml
+NAMSFX=/home/gmgec/mrgo/lenobler/SAVE/ECLIS/56_ALPX3_month_v7.4.2b/nam_sfx_cy49.nml
 FILL_RESTART=1
 NAMSFXpgd=$NAMSFX ; NAMSFXc923=$NAMSFX ; NAMSFXc927=$NAMSFX
 
@@ -33,7 +33,8 @@ CLIMDIR=/scratch/work/haradercoustaue/arome/tests/NFR2.5/c923/cy49t1_clim1.04.NF
 resdir=/scratch/work/lenobler/DATA/dev/aladin
 FA_PGDFILE=$resdir/PGD_fixed.fa
 FA_INITFILE=$resdir/EUC12-CMIP6-ERA5.rst.sfx.P20200901
-FILL_RESTART
+# raw source restart: the job fixes its encoding, then fills the sparse patches
+FIX_ENCODING=1
 
 #=== PGD Input Data
 ECODIR=/scratch/climat/APPS/regional_tools/preprocessing/pgd_data/cy49t1_clim-op1.01
