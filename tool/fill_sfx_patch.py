@@ -2,7 +2,9 @@
 """
 Fill nearly empty patches of a SURFEX restart (FA) from donor patches.
 
-SURFEX stores the patch fields of a restart as X<patch><name><layer> (e.g. X006TG3).
+SURFEX stores the patch fields of a restart as X<patch><name><layer> (e.g. X006TG3) or,
+in other versions, as SFX.<name><layer>P<patch> (e.g. SFX.TG3P6); the scheme is detected
+from the file. In the text below X<patch>NAME stands for either.
 A patch that is almost absent on the source grid forces PREP to extrapolate it from
 a handful of points over every target point, which is extremely slow. This copies,
 for every field of each patch, the donor patch values at the points where the patch
@@ -37,6 +39,42 @@ import numpy as np
 import epygram
 
 
+class Names:
+    """Field names of the patch fields, whatever the naming scheme of the restart."""
+
+    def __init__(self, listfields):
+        self.all = listfields
+        self.sfx = any(re.fullmatch(r'SFX\.TG1P\d+', n) for n in listfields)
+
+    def field(self, patch, name):
+        return 'SFX.%sP%d' % (name, patch) if self.sfx else 'X%03d%s' % (patch, name)
+
+    def of_patch(self, patch):
+        """All the fields of a patch, except its fraction, as {suffix: field name}."""
+        if self.sfx:
+            out = {}
+            for n in self.all:
+                m = re.fullmatch(r'SFX\.(.+)P%d' % patch, n)
+                if m and not m.group(1).startswith('PATCH'):
+                    out[m.group(1)] = n
+            return out
+        prefix = 'X%03d' % patch
+        return {n[len(prefix):]: n for n in self.all
+                if n.startswith(prefix) and not n.startswith(prefix + 'PATCH')}
+
+    def layers(self, patch, name):
+        """Names of the layers of NAME for a patch, in layer order."""
+        found = []
+        for n in self.all:
+            if self.sfx:
+                m = re.fullmatch(r'SFX\.%s(\d+)P%d' % (re.escape(name), patch), n)
+            else:
+                m = re.fullmatch(r'X%03d%s(\d+)' % (patch, re.escape(name)), n)
+            if m:
+                found.append((int(m.group(1)), n))
+        return [n for _, n in sorted(found)]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('infile')
@@ -57,17 +95,20 @@ def main():
     shutil.copyfile(args.infile, args.outfile)
 
     resource = epygram.formats.resource(args.outfile, 'a')
+    names_of = Names(resource.listfields())
+    print('naming scheme: %s' % ('SFX.<name>P<patch>' if names_of.sfx else 'X<patch><name>'))
     for pair in args.fill:
         patch, donor = (int(i) for i in pair.split(':'))
-        prefix = 'X%03d' % patch
-        names = [n for n in resource.listfields()
-                 if n.startswith(prefix) and not n.startswith(prefix + 'PATCH')]
+        donor_fields = names_of.of_patch(donor)
+        names = names_of.of_patch(patch)
         if args.limit:
-            names = names[:args.limit]
+            names = dict(list(names.items())[:args.limit])
 
         filled = 0
-        for name in names:
-            donor_name = 'X%03d%s' % (donor, name[len(prefix):])
+        for suffix, name in names.items():
+            donor_name = donor_fields.get(suffix)
+            if donor_name is None:
+                continue
             field = resource.readfield(name)
             donor_field = resource.readfield(donor_name)
             data = np.ma.masked_greater(np.ma.filled(field.getdata(), 1e20), 1e19)
@@ -85,13 +126,12 @@ def main():
         print('patch %d from patch %d: %d/%d fields filled' % (patch, donor, filled, len(names)))
     for name in args.vertical:
         for patch in range(1, 13):
-            prefix = 'X%03d%s' % (patch, name)
-            layers = sorted(int(n[len(prefix):]) for n in resource.listfields()
-                            if re.fullmatch(re.escape(prefix) + r'\d+', n))
+            prefix = names_of.field(patch, name)
+            layers = names_of.layers(patch, name)
             filled = 0
             previous = None
-            for layer in layers:
-                field = resource.readfield('%s%d' % (prefix, layer))
+            for fname in layers:
+                field = resource.readfield(fname)
                 data = np.asarray(np.ma.filled(field.getdata(), 1e20))
                 if previous is not None:
                     todo = (data > 1e19) & (previous < 1e19)
@@ -99,7 +139,7 @@ def main():
                         data = data.copy()
                         data[todo] = previous[todo]
                         field.setdata(data)
-                        resource.delfield('%s%d' % (prefix, layer))
+                        resource.delfield(fname)
                         resource.writefield(field)
                         filled += 1
                 previous = data
@@ -107,7 +147,10 @@ def main():
     for item in args.constant:
         name, value = item.split('=')
         for patch in range(1, 13):
-            fname = 'X%03d%s' % (patch, name)
+            fname = names_of.field(patch, name)
+            if fname not in names_of.all:
+                print('%s: not in the file' % fname)
+                continue
             field = resource.readfield(fname)
             data = np.asarray(np.ma.filled(field.getdata(), 1e20))
             undefined = data > 1e19
