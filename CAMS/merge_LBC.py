@@ -3,6 +3,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime, timedelta
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -43,7 +44,7 @@ def process_file(filename_LBC, pattern_CAMS, AROME_prefix, list_date_CAMS,
         subprocess.run(cmd, check=True)
         return f"Done: {merge_filename}"
 
-    return None
+    return f"MISSING: {filename_LBC} (closest CAMS is {time_diff} away, tolerance {tolerance})"
 
 
 def main():
@@ -95,6 +96,7 @@ def main():
 
     filenames = sorted(f for f in os.listdir(folder_LBC_ERA5) if f.startswith(AROME_prefix))
 
+    n_failed = 0
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(process_file, f, pattern_CAMS, AROME_prefix, list_date_CAMS,
@@ -108,8 +110,14 @@ def main():
                 result = future.result()
                 if result:
                     print(result)
+                    if result.startswith("MISSING"):
+                        n_failed += 1
             except Exception as e:
                 print(f"Error processing {futures[future]}: {e}")
+                n_failed += 1
+
+    if n_failed:
+        sys.exit(f"ERROR: {n_failed} file(s) not merged, see MISSING/Error lines above.")
 
 
 if __name__ == "__main__":
