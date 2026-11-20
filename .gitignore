@@ -5,3 +5,6 @@ repro_test/lib/__pycache__/common.cpython-312.pyc
 *.pyc
 /data/*
 *.o*
+*.log
+/CAMS/climate_aladin
+/CAMS/naminterp

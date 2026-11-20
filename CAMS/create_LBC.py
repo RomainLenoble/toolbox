@@ -27,8 +27,8 @@ def main():
                         help='Path to the ERA5 LBC directory.')
     parser.add_argument('--CAMS', type=str, required=True,
                         help='Path to the CAMS interpolated over the target geometry Arome.')
-    parser.add_argument('--mode', type=str, required=True,
-                        help='aerosol properties, see lima_utils to choose the mode')
+    parser.add_argument('--mode', type=str, required=False,
+                        help='aerosol properties, default: no conversion, see lima_utils to choose specific')
     parser.add_argument('--output', type=str, required=True,
                         help='Path to the output folder.')
     parser.add_argument('--config', type=str, required=True,
@@ -58,9 +58,10 @@ def main():
     # Interpolate CAMS data to Arome grid
     # ---------------------------------------------------
     interpole_exe = os.path.join(scripts_dir, "interpole_current_folder.py")
+    mode_opt = f"--mode {args.mode} " if args.mode else ""
     run_in_env(
         f"{interpole_exe} --input_folder {folder_CAMS} --output_folder {folder_temp} "
-        f"--mode {args.mode} --config {config_path}",
+        f"{mode_opt}--config {config_path}",
         env_setup,
     )
 

@@ -14,6 +14,7 @@ def interpole_folder(input_folder, output_folder, config, all_particles, list_FA
     dt_format = config["naming"]["cams_input_datetime_format"]
     interp_prefix = config["naming"]["cams_interp_prefix"]
 
+    n_processed = 0
     for filename in os.listdir(input_folder):
         if filename.startswith(prefix):
             match = pattern.search(filename)
@@ -25,17 +26,24 @@ def interpole_folder(input_folder, output_folder, config, all_particles, list_FA
                 input_file = os.path.join(input_folder, filename)
                 output_file = os.path.join(output_folder, output_filename)
 
+                n_processed += 1
                 print(f"Processing {input_file} -> {output_file}")
                 interpole_file(
                     input_file, output_file, all_particles,
                     list_FA_name=list_FA_name, config=config, work_dir='./',
                 )
 
+    if n_processed == 0:
+        raise SystemExit(
+            f"ERROR: no file in {input_folder} matches prefix '{prefix}' and "
+            f"regex '{pattern.pattern}'; check the 'naming' section of the config."
+        )
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Interpolate CAMS files to the target Arome domain")
     parser.add_argument("--input_folder", type=str, required=True, help="Path to the input folder containing CAMS files")
     parser.add_argument("--output_folder", type=str, required=True, help="Path to the output folder where results will be saved")
-    parser.add_argument("--mode", type=str, required=True, help="aerosol properties, see lima_utils to choose the values")
+    parser.add_argument("--mode", type=str, required=False, default="", help="aerosol properties, default: no conversion, see lima_utils to choose the values,")
     parser.add_argument("--config", type=str, required=True, help="Path to the YAML config file (see config/ALPX3.yaml)")
     args = parser.parse_args()
 
@@ -46,14 +54,17 @@ if __name__ == "__main__":
     #####################
     # Select aerosol mode
     #####################
-    if args.mode.lower() == 'mmr':
-        all_particles = []
-        list_FA_name = config["aerosols"]["mmr_faname"]
-    else:
+    # if args.mode.lower() == 'mmr':
+        # all_particles = []
+        # list_FA_name = config["aerosols"]["mmr_faname"]
+    if args.mode.lower() == 'concentration':
         import lib.lima_utils as lu
         all_particles = lu.get_scaling_aerosol(case=args.mode, GL_interp=True)  
         list_group = [[aer_specie['faname']]*len(aer_specie['shortname']) for aer_specie in all_particles]
         list_FA_name = [j for i in list_group for j in i]
+    else:
+        all_particles = []
+        list_FA_name = config["aerosols"]["mmr_faname"]
 
 
     interpole_folder(args.input_folder, args.output_folder, config, all_particles, list_FA_name)
