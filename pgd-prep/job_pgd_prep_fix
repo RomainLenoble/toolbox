@@ -259,8 +259,8 @@ fi
 PGD_SRC=$FA_PGDFILE
 INIT_SRC=$FA_INITFILE
 if [[ $FIX_ENCODING -ne 0 ]] ; then
-   $PYTHON $TOOLBOX_DIR/tool/fix_sfx_fa_encoding.py $FA_PGDFILE restart_sfx_pdg_fixed.fa --set-bug 0 || exit 1
-   PGD_SRC=restart_sfx_pdg_fixed.fa
+   $PYTHON $TOOLBOX_DIR/tool/fix_sfx_fa_encoding.py $FA_PGDFILE restart_sfx_pgd_fixed.fa --set-bug 0 || exit 1
+   PGD_SRC=restart_sfx_pgd_fixed.fa
    $PYTHON $TOOLBOX_DIR/tool/fix_sfx_fa_encoding.py $FA_INITFILE restart_sfx_fixed.fa --set-bug 0 || exit 1
    INIT_SRC=restart_sfx_fixed.fa
 fi
@@ -269,7 +269,7 @@ if [[ $FILL_RESTART -ne 0 ]] ; then
    [[ $INIT_SRC == restart_sfx_fixed.fa ]] && rm -f restart_sfx_fixed.fa
    INIT_SRC=restart_sfx_filled.fa
 fi
-ln -s $PGD_SRC restart_sfx_pdg.fa
+ln -s $PGD_SRC restart_sfx_pgd.fa
 ln -s $INIT_SRC restart_sfx.fa
 
 ln -s $PGD PGD.fa
