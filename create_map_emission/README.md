@@ -134,3 +134,25 @@ the script and `dict_var_to_treat.py` directly.
       SUL_SO2 1. SO2_bb 1. SO2_em
     END_AGREGATION
   ```
+
+
+
+
+# list of files: 
+path_CMIP7_FastTrack_aer_anthro = '/cnrm/mosca/USERS/nabat/DATA/EMISSIONS/AEROSOLS/NETCDF_src/CMIP7-FastTrack/aer_anthro/historical/'
+version = "-em-anthro_input4MIPs_emissions_CMIP_CEDS-CMIP-2025-04-18_gn_"
+date='200001-202312'
+
+file_aer_anthro_BC  = path_CMIP7_FastTrack_aer_anthro + 'BC' + version + date + '.nc'
+file_aer_anthro_OC  = path_CMIP7_FastTrack_aer_anthro + 'OC' + version + date + '.nc'
+file_aer_anthro_SO2 = path_CMIP7_FastTrack_aer_anthro + 'SO2' + version + date + '.nc'
+file_aer_anthro_NH3 = path_CMIP7_FastTrack_aer_anthro + 'NH3' + version + date + '.nc'
+
+path_CMIP7_FastTrack_biomass-burning = file_path = '/cnrm/mosca/USERS/nabat/DATA/EMISSIONS/AEROSOLS/NETCDF_src/CMIP7-FastTrack/biomass-burning/historical/'
+version = "_input4MIPs_emissions_CMIP_DRES-CMIP-BB4CMIP7-2-1_gn_"
+date='175001-202312'
+
+file_BC = path_CMIP7_FastTrack_aer_anthro + 'BC_' + version + "_" + date + '.nc'
+file_OC = path_CMIP7_FastTrack_aer_anthro + 'OC_' + version + "_" + date + '.nc'
+file_SO2 = path_CMIP7_FastTrack_aer_anthro + 'SO2_' + version + "_" + date + '.nc'
+
