@@ -46,8 +46,11 @@ date = pd.to_datetime('2012/10/17', format='%Y/%m/%d')
 # PGD_file_path = '/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.ALPX3.cy49_201210170000.fa'
 # PGD_file_out  = '/scratch/work/lenobler/DATA/ALPX3/restart/sfx/PREP.ALPX3.cy49_201210170000_aerosol.fa'
 
-PGD_file_path = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD_aerosol.fa'
-PGD_file_out = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD_aerosol_1.fa'
+# PGD_file_path = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD_aerosol.fa'
+# PGD_file_out = '/scratch/work/lenobler/CLIMAKE/outputFiles/cy49_tactic_emis/PGD_aerosol_1.fa'
+
+PGD_file_path = '/scratch/work/lenobler/DATA/dev/ALPX3_alex_prod/PGD.fa'
+PGD_file_out = '/scratch/work/lenobler/DATA/dev/ALPX3_alex_prod/PGD_aer.fa'
 
 # Prefix prepended to every field name written to the output FA file
 # (arbitrary FA "experiment" tag used to namespace these fields).
