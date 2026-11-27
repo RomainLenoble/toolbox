@@ -43,7 +43,7 @@ variable_to_treat += [
 
     {'file': path_CMIP7_FastTrack_aer_anthro + 'SO2' + version + date_span + '.nc',
      'varname_nc': 'SO2_em_anthro',
-     'varname_FA': 'SO2_e',
+     'varname_FA': 'SO2_em',
      'factor_conversion': 1
      },
 

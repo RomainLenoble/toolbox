@@ -18,6 +18,10 @@ Workflow:
         d. Regrid ("extract_subdomain") onto the reference geometry.
         e. Mask unphysical values, apply the variable's unit-conversion
            factor, and write the field into the output FA file.
+    4. Add the SURFEX records that switch the chemical emissions on
+       (`surfex_emission_records.py`: SFX.CH_EMIS=.TRUE., CH_EMIS_OPT,
+       EMISFILE_NBR, EMISPEC_NBR, EMISNAMEnnn, EMISAREAnnn, EMISNBTnnn,
+       EMISTIMESnnn). Without them SURFEX ignores the E_* fields.
 
 Configuration (edit as needed before running):
     - `date`: the target date to extract from each emission dataset.
@@ -36,6 +40,7 @@ import shutil
 
 epygram.init_env()
 import dict_var_to_treat
+import surfex_emission_records
 
 # Target date: the script picks, for each emission dataset, the time step
 # closest to this date.
@@ -117,7 +122,8 @@ for variable in dict_var_to_treat.variable_to_treat:
                                         - epygram.config.mask_outside,
                                         epygram.config.mask_outside)
 
-    f_new.setdata(data_filter * factor_conversion)
+    # Masked points (outside the valid range) are set to 0: SURFEX reads them as "no emission".
+    f_new.setdata(np.ma.filled(data_filter * factor_conversion, 0.))
 
     f_new.fid['FA'] = FA_FIELD_PREFIX + varname_FA
 
@@ -127,3 +133,10 @@ for variable in dict_var_to_treat.variable_to_treat:
     ds.close()
 
 prep_out.close()
+
+# --- SURFEX metadata records ---
+# The 2D fields above are not enough: SURFEX only initialises its chemical emissions when
+# SFX.CH_EMIS is true and EMISFILE_NBR / EMISPEC_NBR / EMISNAMEnnn / EMISAREAnnn / EMISNBTnnn /
+# EMISTIMESnnn describe them (normally written by the SURFEX PGD program).  Write them here.
+emitted_species = [v['varname_FA'] for v in dict_var_to_treat.variable_to_treat]
+surfex_emission_records.write_emission_records(PGD_file_out, emitted_species)

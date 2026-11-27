@@ -10,6 +10,7 @@ them into a copy of a reference FA file (PGD or PREP).
 | File | Purpose |
 |---|---|
 | `create_emission_date.py` | Main script: reads the reference FA geometry, extracts/regrids each configured emission variable for a target date, and writes the result to a new FA file. |
+| `surfex_emission_records.py` | Writes the SURFEX metadata records (CH_EMIS, EMISNAME..., etc.) that activate the emissions; also a checker (`--check`). |
 | `dict_var_to_treat.py` | Configuration: the list of emission variables to process (`variable_to_treat`), one dict per NetCDF variable. |
 
 ## How it works
@@ -90,51 +91,38 @@ the script and `dict_var_to_treat.py` directly.
 
 # Add emission to Arome/Accalmie simulation
 
-- create new PGD with aerosols emisions following the above script
-- update the sfx nml: 
+1. Run `create_emission_date.py`. It now writes, in `PGD_file_out`:
+   - the 2D fields `X001E_<name>` (BC_em, OC_em, SO2_em, BC_bb, OC_bb, SO2_bb), and
+   - the SURFEX records that switch the emissions on (`surfex_emission_records.py`):
+     `SFX.CH_EMIS`=.TRUE., `CH_EMIS_OPT`='AGGR', `EMISFILE_NBR`, `EMISPEC_NBR`,
+     `EMISNAMEnnn`, `EMISAREAnnn`, `EMISNBTnnn`, `EMISTIMESnnn`.
+   No separate SURFEX PGD run with `NAM_CH_EMIS_PGD` is needed any more. Without these
+   records SURFEX does not call `CH_INIT_EMISSION_n` and the emissions stay at 0.
+   Check any PGD with `python3 surfex_emission_records.py PGD_aer.fa --check`; add the
+   records to an existing file with `python3 surfex_emission_records.py PGD_aer.fa BC_em BC_bb ...`.
+   The species names in `varname_FA` must be the ones used in `ChemAeroSURFEX.nam` (max 12 characters).
+2. Use this file as the SURFEX PGD (`Const.Clim.sfx`) of the run, with `LCH_SURF_EMIS=T` in `NAM_CH_SURFn`.
+3. Update the file read by SURFEX, for tactic: `ChemAeroSURFEX.nam`:
   ```
-   &NAM_CH_EMIS_PGD 
-      NEMIS_PGD_NBR = 6,
-      CEMIS_PGD_NAME(1)='BC_em',
-      NEMIS_PGD_TIME(1)=1,
-      CEMIS_PGD_AREA(1)='ALL',
-      CEMIS_PGD_ATYPE(1)='ARI',
-      CEMIS_PGD_NAME(2)='BC_bb',
-      NEMIS_PGD_TIME(2)=1,
-      CEMIS_PGD_AREA(2)='ALL',
-      CEMIS_PGD_ATYPE(2)='ARI',
-      CEMIS_PGD_NAME(3)='OC_em',
-      NEMIS_PGD_TIME(3)=1,
-      CEMIS_PGD_AREA(3)='ALL',
-      CEMIS_PGD_ATYPE(3)='ARI',
-      CEMIS_PGD_NAME(4)='OC_bb',
-      NEMIS_PGD_TIME(4)=1,
-      CEMIS_PGD_AREA(4)='ALL',
-      CEMIS_PGD_ATYPE(4)='ARI',
-      CEMIS_PGD_NAME(5)='SO2_bb',
-      NEMIS_PGD_TIME(5)=1,
-      CEMIS_PGD_AREA(5)='ALL',
-      CEMIS_PGD_ATYPE(5)='ARI',
-      CEMIS_PGD_NAME(6)='SO2_em',
-      NEMIS_PGD_TIME(6)=1,
-      CEMIS_PGD_AREA(6)='ALL',
-      CEMIS_PGD_ATYPE(6)='ARI',
-      /
-  ```
-  - Create a new PGD with this nml
-  - update the files read by surfex to manage the emission, for tactic: `ChemAeroSURFEX.nam`:
-  ```
+    EMISUNIT
+    Emission unit
+    <unit>
+
     AGREGATION
       Schema reactionnel TACTIC
       BCHPHIL 0.2 BC_em 0.2 BC_bb
       BCHPHOB 0.8 BC_em 0.8 BC_bb
       OMHPHIL 0.5 OC_em 0.5 OC_bb
       OMHPHOB 0.5 OC_em 0.5 OC_bb
-      SUL_SO4 0.05 SO2_bb
+      SUL_SO4 0.05 SO2_em
       SUL_SO2 1. SO2_bb 1. SO2_em
     END_AGREGATION
   ```
-
+  - `<unit>` is read by `BUILD_EMISSTAB_n`, which only accepts `MIX` (ppp m/s), `CON`
+    (molecules/cm2/s) or `MOL` (umol/m2/day). The CMIP7 files are in kg m-2 s-1: a `KGS` case
+    (conversion factor 1) must be added in `build_emisstabn.F90`; with tactic, `aro_ground_param`
+    copies the SURFEX flux unchanged as kg m-2 s-1.
+  - `SUL_SO4` is 5 % of the anthropogenic SO2 (`SO2_em`).
 
 
 
