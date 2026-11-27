@@ -20,6 +20,15 @@ record `SFX.CH_EMIS` is true, and `CH_INIT_EMISSION_n` then reads:
     SFX.EMISNBTnnn      integer   number of emission times
     SFX.EMISTIMESnnn    integer() emission times in seconds (>= 0)
 
+In AROME, SURFEX does not read the file record by record: the I/O layer
+(`modd_io_surf_aro.F90`, SURFEX_FIELD_BUF_READ_MISC1) first reads an INDEX made of
+the records SFX._FBUF_SIZE / _FBUF_DIM1 / _FBUF_DIM2 / _FBUF_NAME (32 chars per
+entry) / _FBUF_TYPE (2 chars) / _FBUF_MASK (16 chars), entries sorted by name,
+and only the fields listed there exist for it (otherwise: "SURFEX FIELD
+CACHE:<name> WAS NOT FOUND").  Every record written here is therefore also
+registered in that index (scalars N0/L0/C0, EMISTIMES N1, 2D fields E_<name> as
+type X2 with mask FULL, DIM1 = number of grid points, DIM2 = number of times).
+
 These are what the SURFEX PGD program writes (`writesurf_ch_emisn.F90`,
 `write_pgd_surf_atmn.F90`).  In a SURFEX FA file with LFAGMAP they are plain
 int64 LFI articles with no header: integer and logical = 1 word, string =
@@ -84,6 +93,56 @@ def read_record(r, name):
     return np.asarray(LF.wlfilec(r._unit, name, length, True)).astype('int64')
 
 
+IDX_NAME, IDX_TYPE, IDX_MASK = 32, 2, 16
+
+
+def _str_from_words(w):
+    return ''.join(chr(c) for c in w)
+
+
+def read_index(r):
+    """Return the SURFEX field index as a list of dicts (name, type, mask, d1, d2)."""
+    n = int(read_record(r, PREFIX + '_FBUF_SIZE')[0])
+    d1 = read_record(r, PREFIX + '_FBUF_DIM1')
+    d2 = read_record(r, PREFIX + '_FBUF_DIM2')
+    nm = read_record(r, PREFIX + '_FBUF_NAME')
+    ty = read_record(r, PREFIX + '_FBUF_TYPE')
+    mk = read_record(r, PREFIX + '_FBUF_MASK')
+    out = []
+    for i in range(n):
+        out.append(dict(name=_str_from_words(nm[i * IDX_NAME:(i + 1) * IDX_NAME]).strip(),
+                        type=_str_from_words(ty[i * IDX_TYPE:(i + 1) * IDX_TYPE]),
+                        mask=_str_from_words(mk[i * IDX_MASK:(i + 1) * IDX_MASK]).strip(),
+                        d1=int(d1[i]), d2=int(d2[i])))
+    return out
+
+
+def write_index(r, LF, entries, existing):
+    """Rewrite the index records from `entries` (sorted by name, like SURFEX's QSORTC)."""
+    entries = sorted(entries, key=lambda e: e['name'].ljust(IDX_NAME))
+    names = [e['name'] for e in entries]
+    if len(set(names)) != len(names):
+        raise RuntimeError('duplicate names in the SURFEX index')
+    cat = lambda f, w: np.array([ord(c) for e in entries for c in f(e).ljust(w)[:w]], dtype=np.int64)
+    _put(r, LF, PREFIX + '_FBUF_DIM1', _words_int([e['d1'] for e in entries]), existing)
+    _put(r, LF, PREFIX + '_FBUF_DIM2', _words_int([e['d2'] for e in entries]), existing)
+    _put(r, LF, PREFIX + '_FBUF_NAME', cat(lambda e: e['name'], IDX_NAME), existing)
+    _put(r, LF, PREFIX + '_FBUF_TYPE', cat(lambda e: e['type'], IDX_TYPE), existing)
+    _put(r, LF, PREFIX + '_FBUF_MASK', cat(lambda e: e['mask'], IDX_MASK), existing)
+    _put(r, LF, PREFIX + '_FBUF_SIZE', _words_int(len(entries)), existing)
+
+
+def check_index(r, expected):
+    """Check that the expected {name: type} entries are in the index; print and return ok."""
+    idx = {e['name']: e for e in read_index(r)}
+    ok = True
+    for n, t in expected.items():
+        if n not in idx or idx[n]['type'] != t:
+            print('  index: %-18s MISSING or wrong type (%s)' % (n, idx.get(n, {}).get('type')))
+            ok = False
+    return ok
+
+
 def check_records(path, species=None):
     """Print the emission records found in `path` and return True if they are consistent."""
     r = _open(path, 'r')
@@ -127,6 +186,20 @@ def check_records(path, species=None):
                 if 'X001E_' + s not in names:
                     print('  X001E_%s ABSENT (2D field)' % s)
                     ok = False
+        # the AROME I/O layer only sees what is in the index
+        expected = {'CH_EMIS': 'L0', 'CH_EMIS_OPT': 'C0', 'EMISFILE_NBR': 'N0', 'EMISPEC_NBR': 'N0'}
+        if nspec:
+            for j in range(1, nspec[0] + 1):
+                expected.update({'EMISNAME%03d' % j: 'C0', 'EMISAREA%03d' % j: 'C0',
+                                 'EMISNBT%03d' % j: 'N0', 'EMISTIMES%03d' % j: 'N1'})
+                nm = read_record(r, '%sEMISNAME%03d' % (PREFIX, j)) if '%sEMISNAME%03d' % (PREFIX, j) in names else None
+                if nm is not None:
+                    expected['E_' + _str_from_words(nm).strip()] = 'X2'
+        if PREFIX + '_FBUF_SIZE' in names:
+            ok &= check_index(r, expected)
+        else:
+            print('  index records (_FBUF_*) ABSENT')
+            ok = False
         print('=> consistent' if ok else '=> INCOMPLETE')
         return ok
     finally:
@@ -157,6 +230,7 @@ def write_emission_records(path, species, area='ALL', times=None, option='AGGR')
         if max(len(s) for s in species) > 12:
             raise RuntimeError('species names are truncated to 12 characters by SURFEX')
 
+        npoints = [e['d1'] for e in read_index(r) if e['type'] == 'X1' and e['mask'] == 'FULL'][0]
         ntot = sum(len(times.get(s, [0])) for s in species)
         _put(r, LF, PREFIX + 'CH_EMIS', _words_int(1), existing)
         _put(r, LF, PREFIX + 'CH_EMIS_OPT', _words_str(option), existing)
@@ -168,6 +242,19 @@ def write_emission_records(path, species, area='ALL', times=None, option='AGGR')
             _put(r, LF, '%sEMISAREA%03d' % (PREFIX, j), _words_str(area), existing)
             _put(r, LF, '%sEMISNBT%03d' % (PREFIX, j), _words_int(len(tt)), existing)
             _put(r, LF, '%sEMISTIMES%03d' % (PREFIX, j), _words_int(tt), existing)
+
+        # register everything in the SURFEX field index
+        entries = read_index(r)
+        mine = {'CH_EMIS_OPT': ('C0', -1, -1), 'EMISFILE_NBR': ('N0', -1, -1), 'EMISPEC_NBR': ('N0', -1, -1)}
+        for j, s in enumerate(species, 1):
+            nt = len(times.get(s, [0]))
+            mine.update({'EMISNAME%03d' % j: ('C0', -1, -1), 'EMISAREA%03d' % j: ('C0', -1, -1),
+                         'EMISNBT%03d' % j: ('N0', -1, -1), 'EMISTIMES%03d' % j: ('N1', nt, -1),
+                         'E_' + s: ('X2', npoints, nt)})
+        entries = [e for e in entries if e['name'] not in mine]
+        for n, (t, d1, d2) in mine.items():
+            entries.append(dict(name=n, type=t, mask='FULL' if t == 'X2' else '', d1=d1, d2=d2))
+        write_index(r, LF, entries, existing)
     finally:
         r.close()
     return check_records(path, species)
